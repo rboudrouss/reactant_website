@@ -1,0 +1,967 @@
+---
+import { Code } from "astro:components";
+import Base from "../layouts/Base.astro";
+import ThemeToggle from "../components/ThemeToggle.astro";
+
+const repo = "https://github.com/rboudrouss/reactant-analyzer";
+const npm = "https://www.npmjs.com/package/reactant-analyzer";
+
+const install = `npx reactant-analyzer check src/`;
+
+const dashboard = `// src/Dashboard.tsx
+import { useState } from "react";
+import { Filters } from "./Filters";
+
+export function Dashboard() {
+  const [query, setQuery] = useState({ term: "", tags: [] });
+  return <Filters value={query} onChange={setQuery} />;
+}`;
+
+const filters = `// src/Filters.tsx
+import { useEffect } from "react";
+
+export function Filters({ value, onChange }) {
+  useEffect(() => {
+    onChange({ ...value, term: value.term.trim() });   // a new object, every run
+  }, [value, onChange]);
+
+  return <input value={value.term} />;
+}`;
+
+const workflow = `name: reactant
+on: [pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rboudrouss/reactant-analyzer@v0.5.0
+        with:
+          path: .              # the project root, so tsconfig aliases load
+          fail-on: error       # warnings annotate the PR without failing it`;
+
+const plugin = `/plugin marketplace add rboudrouss/reactant-analyzer
+/plugin install reactant@reactant-analyzer`;
+
+const packConfig = `{
+  "packs": ["@team/react-rules", "./rules/pack.json"],
+  "rules": {
+    "team/oversized-effect": { "severity": "warning" },
+    "team/banned-hook": "off"
+  }
+}`;
+
+/** The 17 diagnostics, grouped by the failure they describe. */
+const families = [
+  {
+    label: "Loops that never settle",
+    rules: [
+      ["infinite-loop", "an effect sets state that re-triggers the effect, and the value never settles"],
+      ["cross-component-infinite-loop", "a child effect sets parent state, the parent re-renders the child, the effect fires again"],
+      ["setter-in-render", "setState runs during the render body"],
+      ["cross-setter-in-render", "the same, reached through a prop"],
+    ],
+  },
+  {
+    label: "State that should not be state",
+    rules: [
+      ["derived-state", "an effect only mirrors another state, so compute it during render"],
+      ["unnecessary-rerender", "a mount-only effect immediately overwrites the initial state"],
+      ["redundant-set-state", "setState is called with the value the state already holds"],
+    ],
+  },
+  {
+    label: "Values frozen in time",
+    rules: [
+      ["stale-closure", "a long-lived callback keeps reading a value frozen at registration time"],
+      ["frozen-initial-state", "useState is seeded from a prop that later changes, so the state sticks at the first value"],
+    ],
+  },
+  {
+    label: "Identity and mutation",
+    rules: [
+      ["state-mutation", "a state or prop object is mutated in place, so the reference never changes and React skips the re-render"],
+      ["unstable-context-value", "a provider hands consumers a new object every render"],
+      ["lazy-init", "a useState initializer calls a function on every render"],
+    ],
+  },
+  {
+    label: "Lifecycle and environment",
+    rules: [
+      ["missing-cleanup", "an effect starts something long-lived and returns no teardown"],
+      ["server-component-hook", "a hook runs in a Next.js Server Component, where hooks do not exist"],
+    ],
+  },
+  {
+    label: "Also covered by ESLint",
+    note: "reactant follows the value rather than the syntax, so these also fire through helpers and cross-file custom hooks.",
+    rules: [
+      ["missing-deps", "exhaustive-deps, carried through indirection"],
+      ["always-unstable-deps", "partly covered by exhaustive-deps"],
+      ["conditional-hook", "rules-of-hooks, carried past the lexical case"],
+    ],
+  },
+];
+
+/** ok = catches it · warn = partial or hidden · bad = does not see it · none = out of scope */
+const tools = ["ESLint", "React Compiler", "reactant"];
+
+const matrix = [
+  ["Conditional hook call", ["ok", "catches"], ["bad", "bug stays"], ["ok", "catches"]],
+  ["Missing effect dep", ["warn", "partial"], ["none", "out of scope"], ["ok", "catches"]],
+  ["Unstable dep or context value", ["warn", "partial"], ["warn", "hides it"], ["ok", "catches"]],
+  ["Infinite render loop", ["bad", "blind"], ["bad", "not fixed"], ["ok", "catches"]],
+  ["Derived state in an effect", ["bad", "blind"], ["bad", "not fixed"], ["ok", "catches"]],
+  ["Stale closure", ["bad", "blind"], ["bad", "not fixed"], ["ok", "catches"]],
+  ["Cross-component cycle", ["bad", "blind"], ["bad", "blind"], ["ok", "catches"]],
+];
+
+const docs = [
+  ["docs/usage.md", `${repo}/blob/main/docs/usage.md`, "every flag, the JSON schema, project detection, exit codes"],
+  ["docs/custom-rules.md", `${repo}/blob/main/docs/custom-rules.md`, "writing rule packs"],
+  ["docs/limitations.md", `${repo}/blob/main/docs/limitations.md`, "what it misses and what it may report wrongly"],
+  ["docs/plugins.md", `${repo}/blob/main/docs/plugins.md`, "the Rust API for custom discoverers and resolvers"],
+  ["docs/adr/", `${repo}/tree/main/docs/adr`, "how the analysis works and why each decision was made"],
+];
+---
+
+<Base
+  title="reactant — a static analyzer for React hook bugs"
+  description="Finds React hook bugs that ESLint has no rule for: infinite render loops, derived state, stale closures, cross-component cycles. Whole-program analysis, shipped as a CLI, an npm package and a GitHub Action."
+>
+  <div class="page">
+    <nav class="topnav">
+      <div class="container nav-inner">
+        <a class="nav-name" href="#top">reactant</a>
+        <ul class="nav-links">
+          <li class="nav-section"><a href="#example">Example</a></li>
+          <li class="nav-section"><a href="#rules">Rules</a></li>
+          <li class="nav-section"><a href="#comparison">Comparison</a></li>
+          <li class="nav-section"><a href="#ci">CI</a></li>
+          <li class="nav-section"><a href="#docs">Docs</a></li>
+          <li><a href={repo} target="_blank" rel="noopener">GitHub</a></li>
+          <li><ThemeToggle /></li>
+        </ul>
+      </div>
+    </nav>
+
+    <header id="top" class="hero">
+      <div class="container hero-inner">
+        <h1>reactant</h1>
+        <p class="hero-title">A static analyzer for React hook bugs</p>
+        <p class="hero-bio">
+          Finds the bugs ESLint has no rule for: <strong>infinite render loops</strong>, effects that
+          mirror state instead of computing it, callbacks stuck reading a value <strong
+            >frozen at mount</strong
+          >, providers that re-render every consumer on every render.
+        </p>
+        <div class="install">
+          <Code code={install} lang="sh" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
+            defaultColor={false} />
+          <p class="install-note">
+            Nothing to install, nothing to configure. Node 20 or later. Vite and Next.js projects are
+            detected on their own, tsconfig <code>paths</code> included.
+          </p>
+        </div>
+        <div class="hero-links">
+          <a class="btn" href={repo} target="_blank" rel="noopener">GitHub</a>
+          <a class="btn btn-ghost" href={npm} target="_blank" rel="noopener">npm</a>
+          <a class="btn btn-ghost" href="#docs">Documentation</a>
+        </div>
+      </div>
+
+      <div class="container">
+        <figure class="terminal">
+          <div class="terminal-bar">
+            <span class="dots"><i></i><i></i><i></i></span>
+            <span class="terminal-title">reactant check src/</span>
+          </div>
+          <img
+            src="/demo.gif"
+            alt="reactant closing an infinite render loop between a parent component and its child"
+            width="941"
+            height="246"
+          />
+        </figure>
+        <p class="terminal-caption">
+          A whole-program fixpoint, not a pass per file: <strong>528 files in 1.8s</strong> on excalidraw,
+          <strong>4,195 files in 76s</strong> on dub.
+        </p>
+      </div>
+    </header>
+
+    <main>
+      <section id="example" class="section">
+        <div class="container">
+          <h2 class="section-title">The bug no single file contains</h2>
+          <p>
+            reactant follows values across files and across component boundaries, so a setter handed
+            down as a prop or a hook imported from elsewhere is still checked, and the finding lands on
+            the component that suffers the bug.
+          </p>
+          <p>
+            Here <code>Dashboard</code> owns the state, <code>Filters</code> normalizes it and hands it
+            back up. Neither file has a bug you can see by reading it on its own.
+          </p>
+          <div class="code-pair">
+            <Code code={dashboard} lang="tsx" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
+            defaultColor={false} />
+            <Code code={filters} lang="tsx" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
+            defaultColor={false} />
+          </div>
+          <div class="callout">
+            <p>
+              The spread allocates a fresh object, so <code>Object.is</code> fails, the parent re-renders,
+              <code>value</code> comes back as a new reference, and the effect fires again. ESLint sees
+              two correct files: the deps array lists everything the effect reads, and no hook is conditional.
+              reactant follows <code>setQuery</code> through the prop into the child and closes the cycle.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="rules" class="section">
+        <div class="container">
+          <h2 class="section-title">What it catches</h2>
+          <p>
+            Seventeen diagnostics. Most have no ESLint counterpart. <code>reactant rules</code> lists them
+            all, <code>reactant explain &lt;rule&gt;</code> gives an example and a fix for one.
+          </p>
+          <div class="families">
+            {
+              families.map((family) => (
+                <div class="family">
+                  <h3 class="family-label">{family.label}</h3>
+                  {family.note && <p class="family-note">{family.note}</p>}
+                  <dl class="rule-list">
+                    {family.rules.map(([name, what]) => (
+                      <div class="rule">
+                        <dt><code>{name}</code></dt>
+                        <dd>{what}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      </section>
+
+      <section id="comparison" class="section band">
+        <div class="container">
+          <h2 class="section-title">reactant, ESLint and React Compiler</h2>
+          <p>Three tools, three jobs. None of them replaces another.</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bug class</th>
+                  <th>ESLint</th>
+                  <th>React Compiler</th>
+                  <th>reactant</th>
+                </tr>
+              </thead>
+              <tbody>
+                {
+                  matrix.map(([bug, ...cells]) => (
+                    <tr>
+                      <th scope="row">{bug}</th>
+                      {cells.map(([verdict, label], i) => (
+                        <td data-tool={tools[i]}>
+                          <span class:list={["chip", verdict]}>{label}</span>
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+          <ul class="notes">
+            <li>
+              <strong>eslint-plugin-react-hooks</strong> matches patterns in the AST. That makes it fast,
+              in-editor, and exactly right for the lexical rules of hooks. Add one level of indirection,
+              a helper or a custom hook in another file, and the pattern stops matching.
+            </li>
+            <li>
+              <strong>React Compiler</strong> rewrites code for performance. Where it compiles, its
+              auto-memoization removes the re-renders that unstable references cause, but it does not fix
+              the logic bug underneath, and it bails out silently, so a symptom disappearing proves
+              nothing. On a conditional hook it refuses to compile and the bug stays.
+            </li>
+            <li>
+              <strong>reactant</strong> runs your components. It walks the render body, the effects, the
+              callbacks and the imported hooks, tracks what each state slot can hold across renders, and
+              reports the shapes that cannot settle. Setters are followed through the call graph, custom
+              hooks inlined across files.
+            </li>
+          </ul>
+          <p class="note">
+            Use all three: ESLint in the editor, the compiler for performance, reactant as the gate in
+            CI.
+          </p>
+        </div>
+      </section>
+
+      <section id="ci" class="section">
+        <div class="container">
+          <h2 class="section-title">In CI</h2>
+          <p>
+            The repository is also a GitHub Action. Every finding becomes an annotation on the file and
+            line that produced it.
+          </p>
+          <Code code={workflow} lang="yaml" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
+            defaultColor={false} />
+          <p class="note">
+            Inputs and outputs are documented in <a
+              href={`${repo}/blob/main/action.yml`}
+              target="_blank"
+              rel="noopener">action.yml</a
+            >.
+          </p>
+        </div>
+      </section>
+
+      <section id="ai" class="section">
+        <div class="container">
+          <h2 class="section-title">For AI-generated code</h2>
+          <p>
+            LLMs write exactly these bugs, and they write them behind enough abstraction that AST
+            patterns never fire. <code>--format json</code> gives a machine-readable report where every
+            finding carries a witness chain, the typed steps that led to it, so an agent can fix the cause
+            instead of the line.
+          </p>
+          <p>reactant also ships as a Claude Code plugin:</p>
+          <Code code={plugin} lang="text" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
+            defaultColor={false} />
+          <p class="note">
+            <code>reactant-triage</code> runs the analyzer and sorts each finding into true positive,
+            false positive, or not worth fixing. <code>reactant-rules</code> writes custom rule packs.
+          </p>
+        </div>
+      </section>
+
+      <section id="packs" class="section">
+        <div class="container">
+          <h2 class="section-title">Team rules</h2>
+          <p>
+            Team conventions ship as rule packs, written against facts the engine already resolved —
+            which hook a value came from, what a setter writes, what a selector returns — rather than
+            against source patterns, so they survive refactoring. Authored in JSON or JavaScript,
+            compiled with <code>reactant packs build</code>.
+          </p>
+          <Code code={packConfig} lang="json" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
+            defaultColor={false} />
+        </div>
+      </section>
+
+      <section id="docs" class="section">
+        <div class="container">
+          <h2 class="section-title">Documentation</h2>
+          <ul class="doc-list">
+            {
+              docs.map(([name, href, desc]) => (
+                <li>
+                  <a href={href} target="_blank" rel="noopener">
+                    {name}
+                  </a>
+                  <span class="muted"> — {desc}</span>
+                </li>
+              ))
+            }
+          </ul>
+          <div class="tags">
+            <span class="tag">Rust</span>
+            <span class="tag">Abstract interpretation</span>
+            <span class="tag">WebAssembly</span>
+            <span class="tag">React</span>
+            <span class="tag">MIT licensed</span>
+          </div>
+          <p class="note">
+            The concrete semantics follow the <a
+              href="https://arxiv.org/abs/2507.05234"
+              target="_blank"
+              rel="noopener">React-tRace paper</a
+            > (Lee, Ahn and Yi, OOPSLA 2025).
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <p><strong>reactant</strong> — built by <a href="https://rboud.com">Réda Boudrouss</a></p>
+        <p>
+          <a href={repo} target="_blank" rel="noopener">GitHub</a>
+          &nbsp;·&nbsp;
+          <a href={npm} target="_blank" rel="noopener">npm</a>
+          &nbsp;·&nbsp;
+          <a href={`${repo}/issues`} target="_blank" rel="noopener">Issues</a>
+        </p>
+      </div>
+    </footer>
+  </div>
+</Base>
+
+<style>
+  .page {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  .container {
+    width: 100%;
+    max-width: var(--container);
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+  }
+
+  /* Prose stays readable while code and tables use the full column. */
+  p,
+  .notes,
+  .doc-list {
+    max-width: var(--prose);
+  }
+
+  /* ── nav ── */
+  .topnav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--nav-bg);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    height: 3.5rem;
+  }
+
+  .nav-name {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 0.95rem;
+    color: var(--text);
+    letter-spacing: 0.02em;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 1.5rem;
+    list-style: none;
+  }
+
+  .nav-links a {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: color var(--transition);
+  }
+
+  .nav-links a:hover {
+    color: var(--accent);
+    opacity: 1;
+  }
+
+  .nav-links li {
+    display: flex;
+    align-items: center;
+  }
+
+  /* Narrow screens: the section links would wrap out of the 3.5rem bar.
+     GitHub and the theme toggle stay. */
+  @media (max-width: 700px) {
+    .nav-section {
+      display: none;
+    }
+  }
+
+  /* ── hero ── */
+  .hero {
+    padding-top: 4rem;
+    padding-bottom: 3.5rem;
+  }
+
+  .hero-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .hero h1 {
+    font-family: var(--font-mono);
+    font-size: clamp(2.2rem, 5vw, 3.2rem);
+    font-weight: 500;
+    letter-spacing: -0.03em;
+  }
+
+  .hero-title {
+    font-size: 1.1rem;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .hero-bio {
+    line-height: 1.75;
+  }
+
+  .install {
+    margin-top: 0.75rem;
+    max-width: var(--prose);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .install-note {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+
+  .hero-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .btn {
+    display: inline-block;
+    padding: 0.45rem 1rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    background: var(--accent);
+    color: var(--on-accent);
+    transition: background var(--transition);
+  }
+
+  .btn:hover {
+    background: var(--accent-hover);
+    opacity: 1;
+  }
+
+  .btn-ghost {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+
+  .btn-ghost:hover {
+    background: var(--accent-subtle);
+    opacity: 1;
+  }
+
+  /* ── terminal ── */
+  .terminal {
+    border: 1px solid var(--term-border);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    background: var(--term-bg);
+    box-shadow: var(--shadow-md);
+  }
+
+  .terminal-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--term-bar);
+    border-bottom: 1px solid var(--term-border);
+  }
+
+  .dots {
+    display: flex;
+    gap: 0.35rem;
+  }
+
+  .dots i {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: #444c56;
+  }
+
+  .terminal-title {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: #8b949e;
+  }
+
+  .terminal img {
+    width: 100%;
+  }
+
+  .terminal-caption {
+    margin-top: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+
+  .terminal-caption strong {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  /* ── sections ── */
+  .section {
+    padding-block: 2.75rem;
+  }
+
+  .section > .container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .section-title {
+    font-size: 1.35rem;
+    font-weight: 700;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--accent-light);
+  }
+
+  /* One band, so the page is not a single uninterrupted column. A deeper
+     tone of the same beige — not a switch to white, which reads as a
+     different material rather than a section. */
+  .band {
+    background: var(--band);
+    border-block: 1px solid var(--border);
+    padding-block: 3.25rem;
+  }
+
+  .note {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+
+  .muted {
+    color: var(--text-muted);
+  }
+
+  /* ── example ── */
+  .code-pair {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .callout {
+    border-left: 3px solid var(--bad-fg);
+    background: var(--bad-bg);
+    border-radius: 0 0.375rem 0.375rem 0;
+    padding: 0.9rem 1.15rem;
+  }
+
+  .callout p {
+    max-width: none;
+    font-size: 0.9rem;
+    line-height: 1.7;
+  }
+
+  .callout code {
+    background: var(--code-bg);
+    border-color: transparent;
+  }
+
+  /* ── rules ── */
+  .families {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem 2.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .family-label {
+    font-family: var(--font-sans);
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .family-note {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 0.6rem;
+    line-height: 1.6;
+  }
+
+  .rule-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    margin-top: 0.8rem;
+  }
+
+  .rule dt code {
+    font-size: 0.78rem;
+    color: var(--accent);
+    background: var(--accent-subtle);
+    border-color: transparent;
+    white-space: nowrap;
+  }
+
+  .rule dd {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin-top: 0.2rem;
+  }
+
+  /* ── comparison ── */
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--bg);
+    margin-top: 0.5rem;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.85rem;
+  }
+
+  thead th {
+    text-align: left;
+    padding: 0.65rem 0.9rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+
+  tbody th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  tbody th,
+  tbody td {
+    padding: 0.5rem 0.9rem;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  tbody tr:last-child th,
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .chip {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.25rem;
+  }
+
+  .chip.ok {
+    color: var(--ok-fg);
+    background: var(--ok-bg);
+  }
+
+  .chip.warn {
+    color: var(--warn-fg);
+    background: var(--warn-bg);
+  }
+
+  .chip.bad {
+    color: var(--bad-fg);
+    background: var(--bad-bg);
+  }
+
+  .chip.none {
+    color: var(--text-muted);
+    background: var(--code-bg);
+  }
+
+  /* Narrow screens: the matrix becomes one card per bug class, so the
+     reactant column is never the one pushed off the side. */
+  @media (max-width: 700px) {
+    .table-wrap {
+      overflow-x: visible;
+      border: none;
+      background: none;
+    }
+
+    table,
+    tbody,
+    tbody tr,
+    tbody th,
+    tbody td {
+      display: block;
+    }
+
+    thead {
+      display: none;
+    }
+
+    tbody tr {
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      background: var(--bg);
+      padding: 0.75rem 0.9rem;
+      margin-bottom: 0.6rem;
+    }
+
+    tbody tr:last-child {
+      margin-bottom: 0;
+    }
+
+    tbody th {
+      padding: 0 0 0.6rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0.5rem;
+      white-space: normal;
+      font-weight: 600;
+    }
+
+    tbody td {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.2rem 0;
+      border: none;
+    }
+
+    tbody td::before {
+      content: attr(data-tool);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+  }
+
+  .notes {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    line-height: 1.7;
+  }
+
+  .notes li {
+    padding-left: 1rem;
+    position: relative;
+  }
+
+  .notes li::before {
+    content: "–";
+    position: absolute;
+    left: 0;
+    color: var(--accent-light);
+  }
+
+  /* ── docs ── */
+  .doc-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  .doc-list li {
+    padding-left: 1rem;
+    position: relative;
+  }
+
+  .doc-list li::before {
+    content: "–";
+    position: absolute;
+    left: 0;
+    color: var(--accent-light);
+  }
+
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+  }
+
+  .tag {
+    font-size: 0.8rem;
+    padding: 0.25rem 0.6rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+  }
+
+  /* ── footer ── */
+  .footer {
+    margin-top: auto;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+
+  .footer-inner {
+    padding-block: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .footer p {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+</style>
+
+<style is:global>
+  /* Shiki output, folded into the site's code-block style. */
+  .astro-code {
+    background-color: var(--code-bg) !important;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1rem 1.15rem;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.65;
+  }
+
+  /*
+   * Dual-theme Shiki with defaultColor false emits both palettes as custom
+   * properties per token. Same three selectors as the palette in global.css,
+   * so the highlighting switches with everything else.
+   */
+  .astro-code,
+  .astro-code span {
+    color: var(--shiki-light);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not(.theme-light) .astro-code,
+    :root:not(.theme-light) .astro-code span {
+      color: var(--shiki-dark);
+    }
+  }
+
+  :root.theme-dark .astro-code,
+  :root.theme-dark .astro-code span {
+    color: var(--shiki-dark);
+  }
+</style>

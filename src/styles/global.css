@@ -1,0 +1,190 @@
+:root {
+  color-scheme: light;
+
+  --bg: #f9f8f5;
+  --surface: #fdfcfa;
+  --text: #1a1a2e;
+  --text-muted: #64748b;
+  --accent: #1a6fbf;
+  --accent-hover: #14538f;
+  --accent-light: #4da6f5;
+  --accent-subtle: #dbeeff;
+  --border: #e5e1d8;
+  --link: #1a6fbf;
+  --nav-bg: rgba(249, 248, 245, 0.88);
+  --on-accent: #ffffff;
+  --band: #f1efe7;
+  --code-bg: #f3f1ea;
+  --term-bg: #171b21;
+  --term-bar: #22272e;
+  --term-border: #2d333b;
+  --ok-fg: #1a6fbf;
+  --ok-bg: #dbeeff;
+  --warn-fg: #b45309;
+  --warn-bg: #fdf1d8;
+  --bad-fg: #b42318;
+  --bad-bg: #fdeceb;
+  --font-sans: "Inter", "Public Sans", system-ui, sans-serif;
+  --font-serif: "Lora", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --container: 900px;
+  --prose: 68ch;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --transition: 0.2s ease;
+}
+
+/*
+ * Dark palette. Declared twice on purpose:
+ *  - inside the media query, so a visitor whose system is dark gets dark
+ *    before any JS runs (and even with JS off), unless they explicitly
+ *    picked light;
+ *  - on .theme-dark, so an explicit dark pick wins on a light system.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not(.theme-light) {
+  color-scheme: dark;
+
+  --bg: #0f1117;
+  --surface: #171a23;
+  --text: #e8e9ed;
+  --text-muted: #98a2b3;
+  --accent: #4da6f5;
+  --accent-hover: #7cc0f8;
+  --accent-light: #7cc0f8;
+  --accent-subtle: #1c2c3f;
+  --border: #2a2f3d;
+  --link: #4da6f5;
+  --nav-bg: rgba(15, 17, 23, 0.88);
+  --on-accent: #0f1117;
+  --band: #151823;
+  --code-bg: #0a0c11;
+
+  /* The terminal chrome stays dark in both themes: the gif inside it is. */
+
+  --ok-fg: #7cc0f8;
+  --ok-bg: #1c2c3f;
+  --warn-fg: #e2a33f;
+  --warn-bg: #33270f;
+  --bad-fg: #f2897c;
+  --bad-bg: #3a1c19;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  }
+}
+
+:root.theme-dark {
+  color-scheme: dark;
+
+  --bg: #0f1117;
+  --surface: #171a23;
+  --text: #e8e9ed;
+  --text-muted: #98a2b3;
+  --accent: #4da6f5;
+  --accent-hover: #7cc0f8;
+  --accent-light: #7cc0f8;
+  --accent-subtle: #1c2c3f;
+  --border: #2a2f3d;
+  --link: #4da6f5;
+  --nav-bg: rgba(15, 17, 23, 0.88);
+  --on-accent: #0f1117;
+  --band: #151823;
+  --code-bg: #0a0c11;
+
+  /* The terminal chrome stays dark in both themes: the gif inside it is. */
+
+  --ok-fg: #7cc0f8;
+  --ok-bg: #1c2c3f;
+  --warn-fg: #e2a33f;
+  --warn-bg: #33270f;
+  --bad-fg: #f2897c;
+  --bad-bg: #3a1c19;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 4.5rem;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+  transition: opacity var(--transition);
+}
+
+a:hover {
+  opacity: 0.75;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-serif);
+  line-height: 1.2;
+  color: var(--text);
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.35em;
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1rem 1.15rem;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.65;
+}
+
+pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

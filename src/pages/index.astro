@@ -278,17 +278,58 @@ const families = [
   },
 ];
 
-/** ok = catches it · warn = partial or hidden · bad = does not see it · none = out of scope */
-const tools = ["ESLint", "React Compiler", "reactant"];
+/*
+ * The three tools, in the order they run: the editor, the build, the gate
+ * before merge. This is the part of the section that matters — the table under
+ * it only says what each one sees, and a table alone reads as a scoreboard.
+ */
+const roles = [
+  {
+    name: "eslint-plugin-react-hooks",
+    when: "In your editor, as you type",
+    cost: "a few ms per file",
+    role: "It checks the lexical rules of hooks, such as the deps array and the conditional call. It runs on every keystroke because it never leaves the file it is reading.",
+    limit:
+      "It matches patterns in the AST. Move the hook call into a helper, or into a custom hook in another file, and the pattern no longer matches.",
+  },
+  {
+    name: "React Compiler",
+    when: "In your build",
+    cost: "part of the build",
+    role: "It memoizes for you. Where it compiles, it removes the re-renders that unstable references cause.",
+    limit:
+      "It optimizes and does not report bugs. When it cannot compile a component it skips it without saying so.",
+  },
+  {
+    name: "reactant",
+    when: "In CI, or before a commit",
+    cost: "1.8s for 528 files",
+    role: "It tracks what each value can hold across renders and across files. It follows setters through the call graph and inlines custom hooks.",
+    limit:
+      "It builds a graph of the whole project before it reports anything, so it cannot run on every keystroke. One run takes seconds and covers every file at once.",
+  },
+];
+
+/*
+ * Two kinds of blank, and they are not the same admission.
+ *
+ * `none` is a choice of scope: the tool could do it and does not. `bad` is a
+ * limit of the method. ESLint reads the shape of the code, and these bugs are
+ * not in the shape: you have to know what a value holds on the next render, or
+ * what a setter does once another file calls it. That is not a rule anyone
+ * forgot to write, which is why the label names the method and not a gap.
+ */
+const tools = ["ESLint", "reactant"];
 
 const matrix = [
-  ["Conditional hook call", ["ok", "catches"], ["bad", "bug stays"], ["ok", "catches"]],
-  ["Missing effect dep", ["warn", "partial"], ["none", "out of scope"], ["ok", "catches"]],
-  ["Unstable dep or context value", ["warn", "partial"], ["warn", "hides it"], ["ok", "catches"]],
-  ["Infinite render loop", ["bad", "blind"], ["bad", "not fixed"], ["ok", "catches"]],
-  ["Derived state in an effect", ["bad", "blind"], ["bad", "not fixed"], ["ok", "catches"]],
-  ["Stale closure", ["bad", "blind"], ["bad", "not fixed"], ["ok", "catches"]],
-  ["Cross-component cycle", ["bad", "blind"], ["bad", "blind"], ["ok", "catches"]],
+  ["Unused vars, imports, style", ["ok", "catches"], ["none", "not its job"]],
+  ["Conditional hook call", ["ok", "catches"], ["ok", "catches"]],
+  ["Missing effect dep", ["warn", "same file only"], ["ok", "catches"]],
+  ["Unstable dep or context value", ["warn", "same file only"], ["ok", "catches"]],
+  ["Infinite render loop", ["bad", "syntax only"], ["ok", "catches"]],
+  ["Derived state in an effect", ["bad", "syntax only"], ["ok", "catches"]],
+  ["Stale closure", ["bad", "syntax only"], ["ok", "catches"]],
+  ["Cross-component cycle", ["bad", "syntax only"], ["ok", "catches"]],
 ];
 
 const docs = [
@@ -424,11 +465,6 @@ const docs = [
           </figure>
         </div>
 
-        <p class="demo-note">
-          Editable, and the analyzer is the npm package running here as WebAssembly: nothing is
-          uploaded and there is no backend.
-        </p>
-
         {/* The perf numbers used to sit in a caption under the demo, where the
             one figure that answers "can I put this in CI?" read as a footnote. */}
         <dl class="stats">
@@ -446,8 +482,7 @@ const docs = [
           </div>
         </dl>
         <p class="stats-note">
-          A whole-program fixpoint, not a pass per file: the cost is paid once for the project, not
-          once per file.
+          A whole-program fixpoint, not a pass per file.
         </p>
       </div>
     </header>
@@ -497,11 +532,6 @@ const docs = [
             </div>
             <pre class="out" id="xfile-out" aria-live="polite" set:html={crossFileOutput} />
           </figure>
-          <p class="note">
-            Both files are editable, and the run covers the two of them together. What loads first is
-            that same run, done at build time: no transcript, and nothing to wait for.
-          </p>
-
           <div class="callout">
             <p>
               The spread builds a new object every run. <code>Object.is</code> fails, the parent re-renders,
@@ -546,15 +576,36 @@ const docs = [
 
       <section id="comparison" class="section band">
         <div class="container">
-          <h2 class="section-title">reactant, ESLint and React Compiler</h2>
-          <p>Three tools, three jobs. None of them replaces another.</p>
+          <h2 class="section-title">Where reactant fits</h2>
+          <p>
+            reactant does not replace ESLint or React Compiler. Each one runs at a different moment.
+            ESLint checks the file you are typing in, the compiler rewrites your code at build time,
+            and reactant checks the whole project in CI. Installing reactant changes nothing in your
+            ESLint config and nothing in your build.
+          </p>
+
+          <div class="roles">
+            {
+              roles.map((role) => (
+                <div class="role">
+                  <h3 class="role-name">{role.name}</h3>
+                  <p class="role-when">
+                    {role.when} <span class="role-cost">{role.cost}</span>
+                  </p>
+                  <p class="role-for">{role.role}</p>
+                  <p class="role-limit">{role.limit}</p>
+                </div>
+              ))
+            }
+          </div>
+
+          <h3 class="table-title">What each one catches</h3>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Bug class</th>
                   <th>ESLint</th>
-                  <th>React Compiler</th>
                   <th>reactant</th>
                 </tr>
               </thead>
@@ -574,30 +625,6 @@ const docs = [
               </tbody>
             </table>
           </div>
-          <ul class="notes">
-            <li>
-              <strong>eslint-plugin-react-hooks</strong> matches patterns in the AST. That makes it fast,
-              in-editor, and exactly right for the lexical rules of hooks. Add one level of indirection,
-              a helper or a custom hook in another file, and the pattern stops matching.
-            </li>
-            <li>
-              <strong>React Compiler</strong> rewrites code for performance. Where it compiles, its
-              auto-memoization removes the re-renders that unstable references cause, but it does not fix
-              the logic bug underneath, and it bails out silently, so a symptom disappearing proves
-              nothing. On a conditional hook it refuses to compile and the bug stays.
-            </li>
-            <li>
-              <strong>reactant</strong> runs your components. It walks the render body, the effects, the
-              callbacks and the imported hooks, tracks what each state slot can hold across renders, and
-              reports the shapes that cannot settle. Setters are followed through the call graph, custom
-              hooks inlined across files.
-            </li>
-          </ul>
-          <p class="note">
-            Use all three: ESLint in the editor, the compiler for performance, reactant as the gate in
-            CI.
-          </p>
-        </div>
       </section>
 
       <section id="ci" class="section">
@@ -1106,8 +1133,8 @@ const docs = [
 
   /* ── hero ── */
   .hero {
-    padding-top: 4rem;
-    padding-bottom: 3.5rem;
+    padding-top: 3rem;
+    padding-bottom: 2.25rem;
   }
 
   .hero-inner {
@@ -1599,7 +1626,7 @@ const docs = [
 
   /* ── sections ── */
   .section {
-    padding-block: 2.75rem;
+    padding-block: 1.75rem;
   }
 
   .section > .container {
@@ -1653,6 +1680,13 @@ const docs = [
   .callout p {
     font-size: 0.9rem;
     line-height: 1.7;
+  }
+
+  /* The same box without the red: this one answers an objection, it does not
+     report a bug. */
+  .callout-neutral {
+    border-left-color: var(--accent);
+    background: var(--accent-subtle);
   }
 
   .callout code {
@@ -1709,6 +1743,94 @@ const docs = [
   }
 
   /* ── comparison ── */
+  /* ── comparison ── */
+  /* The three roles come before the table, and read as three cards rather
+     than three columns: the section's point is that they run together. */
+  /* The four lines of a card (name, moment, what it does, where it stops) sit
+     on shared rows, so the three cards line up line for line however long each
+     one's text runs. `row-gap` is the space inside a card, `column-gap` the
+     space between them. */
+  .roles {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 0.75rem;
+    row-gap: 0.4rem;
+    margin-top: 0.5rem;
+  }
+
+  .role {
+    display: grid;
+    grid-template-rows: subgrid;
+    grid-row: span 4;
+    gap: 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    padding: 0.9rem 1rem;
+  }
+
+  .role-name {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 500;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .role-when {
+    font-size: 0.75rem;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* The cost sits on the same line as the moment it runs: the two together are
+     why each tool lives where it does. */
+  .role-cost {
+    font-family: var(--font-mono);
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+
+  .role-cost::before {
+    content: "· ";
+  }
+
+  .role-for,
+  .role-limit {
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+
+  .role-limit {
+    color: var(--text-muted);
+    padding-top: 0.15rem;
+  }
+
+  .table-title {
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-top: 1.25rem;
+  }
+
+  /* Stacked, the rows have nothing to line up with, and sharing them would
+     squeeze the gap between cards down to the gap inside one. */
+  @media (max-width: 820px) {
+    .roles {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .role {
+      display: flex;
+      flex-direction: column;
+    }
+  }
+
   .table-wrap {
     overflow-x: auto;
     border: 1px solid var(--border);

@@ -6,6 +6,8 @@ import ThemeToggle from "../components/ThemeToggle.astro";
 // a dependency here, so a `npm update` moves the badge and the Action pin below
 // at the same time. Read at build time; nothing of it ships to the browser.
 import { version } from "reactant-analyzer/package.json";
+import { run } from "reactant-analyzer";
+import { ansiToHtml } from "../lib/ansi";
 
 const repo = "https://github.com/rboudrouss/reactant-analyzer";
 const npm = "https://www.npmjs.com/package/reactant-analyzer";
@@ -21,17 +23,30 @@ const sections: [string, string][] = [
   ["#docs", "Docs"],
 ];
 
-const dashboard = `// src/Dashboard.tsx
-import { useState } from "react";
+/*
+ * The cross-file example, editable like the hero demo. Both files go into one
+ * run: the bug is the pair, so editing either one has to re-check both.
+ *
+ * The path lives in the pane's bar rather than in a comment at the top of the
+ * source, so the line numbers the analyzer prints are the ones on screen.
+ */
+const crossFiles = [
+  {
+    id: "dashboard",
+    path: "src/Dashboard.tsx",
+    source: `import { useState } from "react";
 import { Filters } from "./Filters";
 
 export function Dashboard() {
   const [query, setQuery] = useState({ term: "", tags: [] });
   return <Filters value={query} onChange={setQuery} />;
-}`;
-
-const filters = `// src/Filters.tsx
-import { useEffect } from "react";
+}
+`,
+  },
+  {
+    id: "filters",
+    path: "src/Filters.tsx",
+    source: `import { useEffect } from "react";
 
 export function Filters({ value, onChange }) {
   useEffect(() => {
@@ -39,7 +54,31 @@ export function Filters({ value, onChange }) {
   }, [value, onChange]);
 
   return <input value={value.term} />;
-}`;
+}
+`,
+  },
+];
+
+/*
+ * The first paint of that run is not transcribed: it is the analyzer, at the
+ * version this page advertises, run at build time on exactly the sources above.
+ * A release that changes the wording, the severity or the rule that fires moves
+ * the page with it, and a visitor with no JavaScript still sees a real run.
+ * ~40ms, and nothing of it ships to the browser.
+ *
+ * `showClean` is what makes the point legible: `Dashboard` comes back ticked,
+ * the finding lands on `Filters`, and neither file holds the bug alone. The
+ * options match the ones the browser re-runs with, so nothing shifts when the
+ * script takes over.
+ */
+const crossFileRun = await run({
+  files: Object.fromEntries(crossFiles.map((file) => [file.path, file.source])),
+  command: "check",
+  color: true,
+  trace: true,
+  showClean: true,
+});
+const crossFileOutput = ansiToHtml(crossFileRun.stdout.trimEnd());
 
 const workflow = `name: reactant
 on: [pull_request]
@@ -416,28 +455,62 @@ const docs = [
     <main>
       <section id="example" class="section">
         <div class="container">
-          <h2 class="section-title">The bug no single file contains</h2>
+          <h2 class="section-title">Two correct files, one infinite loop</h2>
           <p>
-            reactant follows values across files and across component boundaries, so a setter handed
-            down as a prop or a hook imported from elsewhere is still checked, and the finding lands on
-            the component that suffers the bug.
-          </p>
-          <p>
-            Here <code>Dashboard</code> owns the state, <code>Filters</code> normalizes it and hands it
-            back up. Neither file has a bug you can see by reading it on its own.
+            <code>Dashboard</code> owns the state. <code>Filters</code> trims it and hands it back.
+            Neither file is wrong on its own.
           </p>
           <div class="code-pair">
-            <Code code={dashboard} lang="tsx" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
-            defaultColor={false} />
-            <Code code={filters} lang="tsx" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
-            defaultColor={false} />
+            {
+              crossFiles.map((file) => (
+                <div class="pane-src">
+                  <div class="pane-bar">
+                    <span class="path">{file.path}</span>
+                    {/* One per file: a visitor who edited `Filters` wants that
+                        file back, not the whole example. */}
+                    <button class="reset" type="button" data-xfile-reset={file.id} hidden>
+                      Reset
+                    </button>
+                  </div>
+                  <div class="editor-wrap" data-xfile={file.id}>
+                    {/* Painted under the textarea, which goes transparent once the
+                        script takes over. Until then the plain text is what shows. */}
+                    <pre class="hl" aria-hidden="true" />
+                    <textarea
+                      class="editor"
+                      wrap="off"
+                      spellcheck="false"
+                      autocapitalize="off"
+                      autocorrect="off"
+                      aria-label={file.path}>{file.source}</textarea
+                    >
+                  </div>
+                </div>
+              ))
+            }
           </div>
+
+          <figure class="terminal static-run">
+            <div class="terminal-bar">
+              <span class="dots"><i></i><i></i><i></i></span>
+              <span class="terminal-title">reactant check .</span>
+            </div>
+            <pre class="out" id="xfile-out" aria-live="polite" set:html={crossFileOutput} />
+          </figure>
+          <p class="note">
+            Both files are editable, and the run covers the two of them together. What loads first is
+            that same run, done at build time: no transcript, and nothing to wait for.
+          </p>
+
           <div class="callout">
             <p>
-              The spread allocates a fresh object, so <code>Object.is</code> fails, the parent re-renders,
-              <code>value</code> comes back as a new reference, and the effect fires again. ESLint sees
-              two correct files: the deps array lists everything the effect reads, and no hook is conditional.
-              reactant follows <code>setQuery</code> through the prop into the child and closes the cycle.
+              The spread builds a new object every run. <code>Object.is</code> fails, the parent re-renders,
+              the child gets a new <code>value</code>, the effect fires again.
+            </p>
+            <p>
+              ESLint passes both files: the deps array is complete, no hook is conditional. reactant
+              follows <code>setQuery</code> across the import. The finding names both ends of the cycle:
+              the effect in <code>Filters</code>, the setter it borrows from <code>Dashboard</code>.
             </p>
           </div>
         </div>
@@ -620,6 +693,12 @@ const docs = [
   </div>
 
   <script id="demo-data" type="application/json" set:html={JSON.stringify(demos)} is:inline />
+  <script
+    id="cross-file-data"
+    type="application/json"
+    set:html={JSON.stringify(crossFiles)}
+    is:inline
+  />
 
   {/* Kept out of the demo module below on purpose: that one imports the
       WebAssembly analyzer, and a failure there must not take the copy button
@@ -658,19 +737,153 @@ const docs = [
   // is an alias onto the file in node_modules, defined in astro.config.mjs
   // because the package's `exports` map does not expose it.
   import wasmUrl from "reactant-analyzer/wasm-binary?url";
+  import { ansiToHtml } from "../lib/ansi";
+  import { highlight } from "../lib/highlight";
 
-  type Demo = { id: string; label: string; path: string; source: string };
+  type Source = { id: string; path: string; source: string };
+  type Demo = Source & { label: string };
 
-  const demos: Demo[] = JSON.parse(
-    document.getElementById("demo-data")!.textContent!,
-  );
+  const data = <T,>(id: string): T =>
+    JSON.parse(document.getElementById(id)!.textContent!);
 
-  const wrap = document.getElementById("demo-wrap") as HTMLDivElement;
-  const hl = document.getElementById("demo-hl") as HTMLPreElement;
+  const demos = data<Demo[]>("demo-data");
+  const crossFiles = data<Source[]>("cross-file-data");
+
+  // ── panes ───────────────────────────────────────────────────────────────────
+
+  type Pane = {
+    /** What is in the box, which is not the pristine source once edited. */
+    read: () => string;
+    /** Put text in the box and repaint; used by the picker and by Reset. */
+    load: (text: string) => void;
+  };
+
+  /**
+   * Wire one editable pane: the highlighted layer under the caret, the box that
+   * grows with its content, and a callback for every keystroke.
+   */
+  function mountPane(wrap: HTMLElement, onInput: () => void): Pane {
+    const hl = wrap.querySelector(".hl") as HTMLPreElement;
+    const editor = wrap.querySelector(".editor") as HTMLTextAreaElement;
+
+    /** Keep the painted copy at the same offset as the text over it. */
+    const sync = () => {
+      hl.scrollLeft = editor.scrollLeft;
+      hl.scrollTop = editor.scrollTop;
+    };
+
+    /** Grow the box to its content: a scrollbar on ten lines of code reads badly. */
+    const refresh = () => {
+      editor.rows = editor.value.split("\n").length;
+      hl.innerHTML = highlight(editor.value);
+      sync();
+    };
+
+    editor.addEventListener("input", () => {
+      refresh();
+      onInput();
+    });
+    editor.addEventListener("scroll", sync);
+
+    refresh();
+    // The layer only takes over once it holds something to show.
+    wrap.classList.add("lit");
+
+    return {
+      read: () => editor.value,
+      load(text) {
+        editor.value = text;
+        refresh();
+      },
+    };
+  }
+
+  // ── the runs ────────────────────────────────────────────────────────────────
+
+  // One WebAssembly instance, and the analysis cannot be reentered, so every
+  // run on the page goes through this one chain: the hero demo and the
+  // cross-file example take turns rather than collide.
+  let chain: Promise<unknown> = Promise.resolve();
+
+  function exclusive<T>(job: () => Promise<T>): Promise<T> {
+    const next = chain.then(job, job);
+    chain = next.catch(() => {});
+    return next;
+  }
+
+  /**
+   * An analyze-and-print loop for one terminal. `collect` is read at the last
+   * moment, so a run always reports on what is in the boxes when it starts.
+   */
+  function runner(out: HTMLPreElement, collect: () => Record<string, string>) {
+    let running = false;
+    /** A run asked for while one was in flight: the inputs moved under it. */
+    let again = false;
+
+    async function analyze(): Promise<void> {
+      if (running) {
+        again = true;
+        return;
+      }
+      running = true;
+      out.ariaBusy = "true";
+
+      // The analysis holds the thread for its duration, so yield once and let
+      // the browser paint before it starts.
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+
+      try {
+        // `trace` and `showClean` are always on: the examples are small enough
+        // that neither adds noise, and both replace a line telling the reader
+        // to rerun with a flag this page has no button for. The cross-file run
+        // needs `showClean` for its point: one file comes back ticked.
+        const { stdout, stderr } = await exclusive(() =>
+          run({
+            files: collect(),
+            format: "human",
+            color: true,
+            trace: true,
+            showClean: true,
+          }),
+        );
+        out.innerHTML = ansiToHtml(stdout + stderr) || "(no output)";
+      } catch (error) {
+        // A finding is a result; only a usage error throws. Anything else is
+        // this page's own fault and should read like it.
+        const prefix = error instanceof UsageError ? "usage error" : "demo error";
+        out.innerHTML = `<span class="red">${prefix}:</span> ${
+          error instanceof Error ? error.message : String(error)
+        }`;
+      } finally {
+        out.ariaBusy = "false";
+        running = false;
+      }
+
+      // Whatever changed mid-run is in the inputs now, so honour it.
+      if (again) {
+        again = false;
+        await analyze();
+      }
+    }
+
+    return analyze;
+  }
+
+  // Typing re-runs on its own: a run is a couple of milliseconds, and a Run
+  // button is one more thing to explain in a hero.
+  function debounced(analyze: () => void): () => void {
+    let timer: number | undefined;
+    return () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(analyze, 400);
+    };
+  }
+
+  // ── the hero demo: one file, six examples ───────────────────────────────────
+
   const pathLabel = document.getElementById("demo-path") as HTMLSpanElement;
-  const editor = document.getElementById("demo-editor") as HTMLTextAreaElement;
-  const reset = document.getElementById("demo-reset") as HTMLButtonElement;
-  const out = document.getElementById("demo-out") as HTMLPreElement;
+  const demoReset = document.getElementById("demo-reset") as HTMLButtonElement;
+  const demoOut = document.getElementById("demo-out") as HTMLPreElement;
 
   /** The visitor's edits, per example; `demos` keeps the pristine text. */
   const edited = new Map<string, string>();
@@ -678,180 +891,26 @@ const docs = [
 
   const sourceOf = (demo: Demo) => edited.get(demo.id) ?? demo.source;
 
-  // ── syntax highlighting ─────────────────────────────────────────────────────
-  //
-  // A textarea cannot colour its own text, so the highlighted copy is painted
-  // in a `pre` underneath and the textarea is made transparent over it. The two
-  // must agree on every metric that decides where a glyph lands (font, size,
-  // line height, padding, `white-space`), which the stylesheet does by giving
-  // both the same declarations.
-  //
-  // The tokenizer is deliberately small. Shiki, which renders the static code
-  // blocks on this page at build time, costs about a megabyte to run in the
-  // browser; that is a poor trade next to six snippets of a dozen lines.
+  const demoAnalyze = runner(demoOut, () => {
+    // Remember the edit before reporting on it, so leaving the example and
+    // coming back shows the same text.
+    if (demoPane.read() !== sourceOf(current)) {
+      edited.set(current.id, demoPane.read());
+      demoReset.hidden = false;
+    }
+    return { [current.path]: demoPane.read() };
+  });
 
-  /** Order matters: at any position the first alternative to match wins. */
-  const TOKEN = new RegExp(
-    [
-      "(//[^\\n]*|/\\*[\\s\\S]*?\\*/)", // comment
-      "(\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'|`(?:[^`\\\\]|\\\\.)*`)", // string
-      "(</?[A-Za-z][\\w.]*)", // JSX tag name, opening or closing
-      "([A-Za-z_$][\\w$]*(?==\\{))", // JSX attribute: `onClick={`
-      "(\\b(?:import|from|export|default|const|let|var|function|return|if|else|new|typeof|await|async|null|true|false|undefined)\\b)",
-      "([A-Za-z_$][\\w$]*(?=\\())", // anything called, hooks included
-      "(\\b\\d+(?:\\.\\d+)?\\b)", // number
-    ].join("|"),
-    "g",
+  const demoPane = mountPane(
+    document.getElementById("demo-wrap") as HTMLDivElement,
+    debounced(demoAnalyze),
   );
-
-  /** One class per capturing group above, in the same order. */
-  const TOKEN_CLASS = ["tk-c", "tk-s", "tk-t", "tk-a", "tk-k", "tk-f", "tk-n"];
-
-  const esc = (part: string) =>
-    part.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-  function highlight(code: string): string {
-    let html = "";
-    let last = 0;
-
-    for (const match of code.matchAll(TOKEN)) {
-      html += esc(code.slice(last, match.index));
-      // The group that fired names the token; the rest are undefined.
-      const group = TOKEN_CLASS.findIndex((_, i) => match[i + 1] !== undefined);
-      html += `<span class="${TOKEN_CLASS[group]}">${esc(match[0])}</span>`;
-      last = match.index + match[0].length;
-    }
-
-    return html + esc(code.slice(last));
-  }
-
-  /** Repaint the layer under the caret, and keep it at the same offset. */
-  function paint() {
-    hl.innerHTML = highlight(editor.value);
-    hl.scrollLeft = editor.scrollLeft;
-    hl.scrollTop = editor.scrollTop;
-  }
-
-  // ── ANSI ────────────────────────────────────────────────────────────────────
-  //
-  // The human reporter emits six SGR codes and nothing else: reset, bold, dim
-  // and red/green/yellow. Rather than pull in a converter, map those onto
-  // classes and let the stylesheet pick the shades.
-
-  const ANSI_CLASS: Record<string, string> = {
-    "1": "b",
-    "2": "d",
-    "31": "red",
-    "32": "green",
-    "33": "yellow",
-  };
-
-  /** Escape, then reopen a span for whatever the current SGR state is. */
-  function ansiToHtml(text: string): string {
-    const escape = (part: string) =>
-      part.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-    let html = "";
-    let open = false;
-    let last = 0;
-
-    for (const match of text.matchAll(/\u001b\[([0-9;]*)m/g)) {
-      html += escape(text.slice(last, match.index));
-      last = match.index + match[0].length;
-
-      if (open) {
-        html += "</span>";
-        open = false;
-      }
-      // `0` (and a bare `[m`) resets; anything else we know opens a span.
-      const classes = match[1]
-        .split(";")
-        .map((code) => ANSI_CLASS[code])
-        .filter(Boolean);
-      if (classes.length > 0) {
-        html += `<span class="${classes.join(" ")}">`;
-        open = true;
-      }
-    }
-
-    html += escape(text.slice(last));
-    return open ? html + "</span>" : html;
-  }
-
-  // ── the run ─────────────────────────────────────────────────────────────────
-
-  let running = false;
-  /** A run asked for while one was in flight: the analysis cannot be reentered. */
-  let queued = false;
-
-  async function analyze(): Promise<void> {
-    if (running) {
-      queued = true;
-      return;
-    }
-    running = true;
-
-    if (editor.value !== sourceOf(current)) {
-      edited.set(current.id, editor.value);
-      reset.hidden = false;
-    }
-
-    out.ariaBusy = "true";
-
-    // The analysis holds the thread for its duration, so yield once and let the
-    // browser paint before it starts.
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-
-    try {
-      // `trace` and `showClean` are always on: every example is a single
-      // component, so neither adds noise, and both replace a line telling the
-      // reader to rerun with a flag this page has no button for.
-      const { stdout, stderr } = await run({
-        files: { [current.path]: sourceOf(current) },
-        format: "human",
-        color: true,
-        trace: true,
-        showClean: true,
-      });
-      out.innerHTML = ansiToHtml(stdout + stderr) || "(no output)";
-    } catch (error) {
-      // A finding is a result; only a usage error throws. Anything else is this
-      // page's own fault and should read like it.
-      const prefix = error instanceof UsageError ? "usage error" : "demo error";
-      out.innerHTML = `<span class="red">${prefix}:</span> ${
-        error instanceof Error ? error.message : String(error)
-      }`;
-    } finally {
-      out.ariaBusy = "false";
-      running = false;
-    }
-
-    // Whatever changed mid-run is in the inputs now, so honour it.
-    if (queued) {
-      queued = false;
-      await analyze();
-    }
-  }
-
-  // ── wiring ──────────────────────────────────────────────────────────────────
-
-  /** Grow the box to its content: a scrollbar on ten lines of code reads badly. */
-  function fit() {
-    editor.rows = editor.value.split("\n").length;
-  }
-
-  /** Everything that follows a change to the text. */
-  function refresh() {
-    fit();
-    paint();
-  }
 
   function select(demo: Demo) {
     current = demo;
     pathLabel.textContent = demo.path;
-    editor.value = sourceOf(demo);
-    refresh();
-    reset.hidden = !edited.has(demo.id);
+    demoPane.load(sourceOf(demo));
+    demoReset.hidden = !edited.has(demo.id);
     for (const button of document.querySelectorAll<HTMLButtonElement>(".pick")) {
       button.ariaSelected = String(button.dataset.demo === demo.id);
     }
@@ -862,49 +921,80 @@ const docs = [
       const demo = demos.find((d) => d.id === button.dataset.demo);
       if (!demo || demo === current) return;
       // Keep the edit that is in the box before leaving it behind.
-      if (editor.value !== sourceOf(current)) {
-        edited.set(current.id, editor.value);
+      if (demoPane.read() !== sourceOf(current)) {
+        edited.set(current.id, demoPane.read());
       }
       select(demo);
-      analyze();
+      demoAnalyze();
     });
   }
 
-  reset.addEventListener("click", () => {
+  demoReset.addEventListener("click", () => {
     edited.delete(current.id);
-    editor.value = current.source;
-    refresh();
-    reset.hidden = true;
-    analyze();
+    demoPane.load(current.source);
+    demoReset.hidden = true;
+    demoAnalyze();
   });
 
-  // Typing re-runs on its own: a run is a couple of milliseconds, and a Run
-  // button is one more thing to explain in a hero.
-  let debounce: number | undefined;
-  editor.addEventListener("input", () => {
-    refresh();
-    window.clearTimeout(debounce);
-    debounce = window.setTimeout(analyze, 400);
-  });
+  // ── the cross-file example: two files, one run ──────────────────────────────
+
+  const xfileOut = document.getElementById("xfile-out") as HTMLPreElement;
+  const xfilePanes = new Map<string, Pane>();
+
+  // Every run reports on both files, whichever one was typed in: the bug is
+  // the pair, and a file checked alone is the reading this section argues
+  // against.
+  const xfileAnalyze = runner(xfileOut, () =>
+    Object.fromEntries(
+      crossFiles.map((file) => [file.path, xfilePanes.get(file.id)!.read()]),
+    ),
+  );
+
+  const onCrossFileInput = debounced(xfileAnalyze);
+
+  for (const file of crossFiles) {
+    const wrap = document.querySelector(
+      `[data-xfile="${file.id}"]`,
+    ) as HTMLDivElement;
+    const reset = document.querySelector(
+      `[data-xfile-reset="${file.id}"]`,
+    ) as HTMLButtonElement;
+
+    const pane: Pane = mountPane(wrap, () => {
+      // Shown on the keystroke, not on the run 400ms later: the button has to
+      // answer the edit that put it there.
+      reset.hidden = pane.read() === file.source;
+      onCrossFileInput();
+    });
+    xfilePanes.set(file.id, pane);
+
+    reset.addEventListener("click", () => {
+      pane.load(file.source);
+      reset.hidden = true;
+      xfileAnalyze();
+    });
+  }
+
+  // ── start ───────────────────────────────────────────────────────────────────
 
   // Instantiate up front, so the first run is as quick as the rest and a failed
   // fetch surfaces here rather than as a box that never fills in.
-  // The layer only takes over once it holds something to show.
-  paint();
-  wrap.classList.add("lit");
-  fit();
-
-  editor.addEventListener("scroll", () => {
-    hl.scrollLeft = editor.scrollLeft;
-    hl.scrollTop = editor.scrollTop;
-  });
-
-  initWasm(wasmUrl).then(analyze, (error: unknown) => {
-    out.innerHTML = `<span class="red">could not load the analyzer:</span> ${
-      error instanceof Error ? error.message : String(error)
-    }`;
-    out.ariaBusy = "false";
-  });
+  initWasm(wasmUrl).then(
+    () => {
+      demoAnalyze();
+      // The cross-file terminal already holds the build-time run of the same
+      // sources, so it is left alone until the visitor edits something.
+    },
+    (error: unknown) => {
+      const message = `<span class="red">could not load the analyzer:</span> ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      demoOut.innerHTML = message;
+      demoOut.ariaBusy = "false";
+      // The cross-file terminal keeps its build-time output, which is still
+      // true; only the re-running stops.
+    },
+  );
 </script>
 
 <style>
@@ -919,13 +1009,6 @@ const docs = [
     max-width: var(--container);
     margin-inline: auto;
     padding-inline: 1.5rem;
-  }
-
-  /* Prose stays readable while code and tables use the full column. */
-  p,
-  .notes,
-  .doc-list {
-    max-width: var(--prose);
   }
 
   /* ── nav ── */
@@ -1054,7 +1137,6 @@ const docs = [
 
   .install {
     margin-top: 0.75rem;
-    max-width: var(--prose);
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -1423,6 +1505,13 @@ const docs = [
     color: #d29922;
   }
 
+  /* The same chrome as the live demo, but sized by its content: this one is a
+     build-time run, not a pane that has to match an editor's height. */
+  .static-run .out {
+    flex: none;
+    font-size: 0.78rem;
+  }
+
   .demo-note {
     font-size: 0.8rem;
     color: var(--text-muted);
@@ -1557,10 +1646,12 @@ const docs = [
     background: var(--bad-bg);
     border-radius: 0 0.375rem 0.375rem 0;
     padding: 0.9rem 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
   }
 
   .callout p {
-    max-width: none;
     font-size: 0.9rem;
     line-height: 1.7;
   }

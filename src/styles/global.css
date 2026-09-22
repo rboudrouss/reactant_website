@@ -118,6 +118,13 @@ html {
   scroll-padding-top: 4.5rem;
 }
 
+/* Narrow screens carry a second nav row, so an anchor needs to clear both. */
+@media (max-width: 700px) {
+  html {
+    scroll-padding-top: 7rem;
+  }
+}
+
 body {
   background-color: var(--bg);
   color: var(--text);

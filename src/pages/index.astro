@@ -1,44 +1,42 @@
 ---
-import { Code } from "astro:components";
 import Base from "../layouts/Base.astro";
 import ThemeToggle from "../components/ThemeToggle.astro";
 // The version the page advertises is the one it analyzes with: the analyzer is
-// a dependency here, so a `npm update` moves the badge and the Action pin below
-// at the same time. Read at build time; nothing of it ships to the browser.
+// a dependency here, so a `npm update` moves the version strip and the Action
+// pin below at the same time. Read at build time; nothing of it ships to the
+// browser.
 import { version } from "reactant-analyzer/package.json";
 import { run } from "reactant-analyzer";
 import { ansiToHtml } from "../lib/ansi";
+import { annotate } from "../lib/annotate";
 
 const repo = "https://github.com/rboudrouss/reactant-analyzer";
 const npm = "https://www.npmjs.com/package/reactant-analyzer";
+const doc = (file: string) => `${repo}/blob/main/docs/${file}`;
 
-const install = `npx reactant-analyzer`;
-
-/** Rendered twice: the top bar, and the scrollable row narrow screens get. */
-const sections: [string, string][] = [
-  ["#example", "Example"],
-  ["#rules", "Rules"],
-  ["#comparison", "Comparison"],
-  ["#ci", "CI"],
-  ["#docs", "Docs"],
-];
+const install = "npx reactant-analyzer";
 
 /*
- * The cross-file example, editable like the hero demo. Both files go into one
- * run: the bug is the pair, so editing either one has to re-check both.
+ * The hero: two files, one loop. Editable, and both go into one run: the bug
+ * is the pair, so editing either one has to re-check both.
  *
  * The path lives in the pane's bar rather than in a comment at the top of the
  * source, so the line numbers the analyzer prints are the ones on screen.
+ * `setQuery` and `onChange` both sit on row 5 of their file: the wire drawn
+ * between the panes (see `.wire` below) is positioned on that row, and only
+ * while neither file has been edited.
  */
 const crossFiles = [
   {
     id: "dashboard",
     path: "src/Dashboard.tsx",
+    role: "owns the state",
     source: `import { useState } from "react";
 import { Filters } from "./Filters";
 
 export function Dashboard() {
-  const [query, setQuery] = useState({ term: "", tags: [] });
+  const [query, setQuery] =
+    useState({ term: "" });
   return <Filters value={query} onChange={setQuery} />;
 }
 `,
@@ -46,71 +44,26 @@ export function Dashboard() {
   {
     id: "filters",
     path: "src/Filters.tsx",
+    role: "trims it and hands it back",
     source: `import { useEffect } from "react";
 
 export function Filters({ value, onChange }) {
   useEffect(() => {
-    onChange({ ...value, term: value.term.trim() });   // a new object, every run
+    onChange({ ...value, term: value.term.trim() });
   }, [value, onChange]);
 
-  return <input value={value.term} />;
+  return <input value={value.term} readOnly />;
 }
 `,
   },
 ];
 
 /*
- * The first paint of that run is not transcribed: it is the analyzer, at the
- * version this page advertises, run at build time on exactly the sources above.
- * A release that changes the wording, the severity or the rule that fires moves
- * the page with it, and a visitor with no JavaScript still sees a real run.
- * ~40ms, and nothing of it ships to the browser.
- *
- * `showClean` is what makes the point legible: `Dashboard` comes back ticked,
- * the finding lands on `Filters`, and neither file holds the bug alone. The
- * options match the ones the browser re-runs with, so nothing shifts when the
- * script takes over.
- */
-const crossFileRun = await run({
-  files: Object.fromEntries(crossFiles.map((file) => [file.path, file.source])),
-  command: "check",
-  color: true,
-  trace: true,
-  showClean: true,
-});
-const crossFileOutput = ansiToHtml(crossFileRun.stdout.trimEnd());
-
-const workflow = `name: reactant
-on: [pull_request]
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: rboudrouss/reactant-analyzer@v${version}
-        with:
-          path: .              # the project root, so tsconfig aliases load
-          fail-on: error       # warnings annotate the PR without failing it`;
-
-const plugin = `/plugin marketplace add rboudrouss/reactant-analyzer
-/plugin install reactant@reactant-analyzer`;
-
-const packConfig = `{
-  "packs": ["@team/react-rules", "./rules/pack.json"],
-  "rules": {
-    "team/oversized-effect": { "severity": "warning" },
-    "team/banned-hook": "off"
-  }
-}`;
-
-/*
- * The live demo in the hero. One component per example on purpose: a tree of
- * several files is exactly what reactant is for, but a two-file toy in a
- * playground teaches the opposite lesson: that it works file by file. The
- * cross-file story is told properly in the section below instead.
- *
- * Each source was run through the analyzer as it stands: the label names the
- * finding the run actually produces, not the one the code was written for.
+ * The live example in section 01. One file per example on purpose: the hero
+ * above has already made the cross-file point, so here each tab shows one more
+ * shape the analyzer reports, and the notes beside the output explain how to
+ * read a finding. Each source was run through the analyzer as it stands: the
+ * label names the finding the run actually produces.
  */
 const demos = [
   {
@@ -226,290 +179,190 @@ export function Search({ items }) {
   },
 ];
 
-/** The 17 diagnostics, grouped by the failure they describe. */
-const families = [
+/*
+ * The runs below are the analyzer, at the version this page advertises, run at
+ * build time on exactly the sources above. A release that changes the wording,
+ * the severity or the rule that fires moves the page with it, and a visitor
+ * with no JavaScript still sees a real run. A few tens of milliseconds, and
+ * nothing of it ships to the browser.
+ *
+ * The options are the ones the browser re-runs the pair with, so nothing
+ * shifts when the script takes over. `showClean` is what makes the point
+ * legible: `Dashboard` comes back ticked, the finding lands on `Filters`.
+ */
+const pairRun = await run({
+  files: Object.fromEntries(crossFiles.map((f) => [f.path, f.source])),
+  format: "human",
+  color: true,
+  showClean: true,
+});
+const pairOutput = ansiToHtml(pairRun.stdout.trimEnd());
+
+/*
+ * The first tab's run, so a visitor with no JavaScript still reads a real
+ * finding with its trace step. The other tabs run in the browser on demand.
+ * `showClean` is for the clean tab: its component line comes back ticked
+ * instead of a note about a hidden component, so note 1 stays true there too.
+ */
+const demoRun = await run({
+  files: { [demos[0].path]: demos[0].source },
+  format: "human",
+  color: true,
+  trace: true,
+  showClean: true,
+});
+const demoOutput = annotate(ansiToHtml(demoRun.stdout.trimEnd()));
+
+const workflow = `name: reactant
+on: [pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rboudrouss/reactant-analyzer@v${version}
+        with:
+          # the project root, so aliases load
+          path: .
+          # warnings annotate, never fail the PR
+          fail-on: error`;
+
+const plugin = `/plugin marketplace add rboudrouss/reactant-analyzer
+/plugin install reactant@reactant-analyzer`;
+
+/** The 17 diagnostics, grouped by the failure they describe, symptom first. */
+const families: { label: string; rules: [string, string, string][] }[] = [
   {
     label: "Loops that never settle",
     rules: [
-      ["infinite-loop", "an effect sets state that re-triggers the effect, and the value never settles"],
-      ["cross-component-infinite-loop", "a child effect sets parent state, the parent re-renders the child, the effect fires again"],
-      ["setter-in-render", "setState runs during the render body"],
-      ["cross-setter-in-render", "the same, reached through a prop"],
+      ["The tab freezes, or React throws “Maximum update depth exceeded”.", "infinite-loop", "an effect sets state that re-triggers the effect, and the value never settles"],
+      ["The same loop, but the setter belongs to the parent. Both files look fine alone.", "cross-component-infinite-loop", "a child effect sets parent state, the parent re-renders the child, the effect fires again"],
+      ["A setter called while rendering. React warns, or loops.", "setter-in-render", "setState runs during the render body"],
+      ["The same, but the setter arrived as a prop.", "cross-setter-in-render", "the same, reached through a prop"],
     ],
   },
   {
     label: "State that should not be state",
     rules: [
-      ["derived-state", "an effect only mirrors another state, so compute it during render"],
-      ["unnecessary-rerender", "a mount-only effect immediately overwrites the initial state"],
-      ["redundant-set-state", "setState is called with the value the state already holds"],
+      ["One render shows the old value before the new one catches up.", "derived-state", "an effect only mirrors another state, so compute it during render"],
+      ["Two renders where one would do, on every mount.", "unnecessary-rerender", "a mount-only effect immediately overwrites the initial state"],
+      ["Nothing happens, and nobody remembers why the call is there.", "redundant-set-state", "setState is called with the value the state already holds"],
     ],
   },
   {
     label: "Values frozen in time",
     rules: [
-      ["stale-closure", "a long-lived callback keeps reading a value frozen at registration time"],
-      ["frozen-initial-state", "useState is seeded from a prop that later changes, so the state sticks at the first value"],
+      ["The interval logs the same count forever.", "stale-closure", "a long-lived callback keeps reading a value frozen from the moment the callback was created"],
+      ["The prop changed but the component still shows the first value.", "frozen-initial-state", "useState is seeded from a prop that later changes, so the state sticks at the first value"],
     ],
   },
   {
     label: "Identity and mutation",
     rules: [
-      ["state-mutation", "a state or prop object is mutated in place, so the reference never changes and React skips the re-render"],
-      ["unstable-context-value", "a provider hands consumers a new object every render"],
-      ["lazy-init", "a useState initializer calls a function on every render"],
+      ["You pushed to the array and nothing re-rendered.", "state-mutation", "a state or prop object is mutated in place, so the reference never changes and React skips the re-render"],
+      ["Every consumer re-renders every time the provider does, even when nothing in the value changed.", "unstable-context-value", "a provider hands consumers a new object every render"],
+      ["The expensive setup runs on every render instead of once.", "lazy-init", "a useState initializer calls a function on every render"],
     ],
   },
   {
     label: "Lifecycle and environment",
     rules: [
-      ["missing-cleanup", "an effect starts something long-lived and returns no teardown"],
-      ["server-component-hook", "a hook runs in a Next.js Server Component, where hooks do not exist"],
+      ["Listeners pile up after each remount, twice under StrictMode.", "missing-cleanup", "an effect starts something long-lived and never cleans it up"],
+      ["A hook in a Next.js Server Component, where hooks do not exist.", "server-component-hook", "a hook runs in a Next.js Server Component"],
     ],
   },
   {
-    label: "Also covered by ESLint",
-    note: "reactant follows the value rather than the syntax, so these also fire through helpers and cross-file custom hooks.",
+    label: "Also covered by ESLint, followed further",
     rules: [
-      ["missing-deps", "exhaustive-deps, carried through indirection"],
-      ["always-unstable-deps", "partly covered by exhaustive-deps"],
-      ["conditional-hook", "rules-of-hooks, carried past the lexical case"],
+      ["The deps array misses a value, but the read is inside a helper or a custom hook in another file.", "missing-deps", "exhaustive-deps, followed through helpers and other files"],
+      ["A dep is a fresh object or function every render, so the effect re-runs every time.", "always-unstable-deps", "partly covered by exhaustive-deps"],
+      ["A hook call that is conditional once you follow the value, not the syntax.", "conditional-hook", "rules-of-hooks, followed when the condition is on a value, not only when the if is around the call"],
     ],
   },
-];
-
-/*
- * The three tools, in the order they run: the editor, the build, the gate
- * before merge. This is the part of the section that matters — the table under
- * it only says what each one sees, and a table alone reads as a scoreboard.
- */
-const roles = [
-  {
-    name: "eslint-plugin-react-hooks",
-    when: "In your editor, as you type",
-    cost: "a few ms per file",
-    role: "It checks the lexical rules of hooks, such as the deps array and the conditional call. It runs on every keystroke because it never leaves the file it is reading.",
-    limit:
-      "It matches patterns in the AST. Move the hook call into a helper, or into a custom hook in another file, and the pattern no longer matches.",
-  },
-  {
-    name: "React Compiler",
-    when: "In your build",
-    cost: "part of the build",
-    role: "It memoizes for you. Where it compiles, it removes the re-renders that unstable references cause.",
-    limit:
-      "It optimizes and does not report bugs. When it cannot compile a component it skips it without saying so.",
-  },
-  {
-    name: "reactant",
-    when: "In CI, or before a commit",
-    cost: "1.8s for 528 files",
-    role: "It tracks what each value can hold across renders and across files. It follows setters through the call graph and inlines custom hooks.",
-    limit:
-      "It builds a graph of the whole project before it reports anything, so it cannot run on every keystroke. One run takes seconds and covers every file at once.",
-  },
-];
-
-/*
- * Two kinds of blank, and they are not the same admission.
- *
- * `none` is a choice of scope: the tool could do it and does not. `bad` is a
- * limit of the method. ESLint reads the shape of the code, and these bugs are
- * not in the shape: you have to know what a value holds on the next render, or
- * what a setter does once another file calls it. That is not a rule anyone
- * forgot to write, which is why the label names the method and not a gap.
- */
-const tools = ["ESLint", "reactant"];
-
-const matrix = [
-  ["Unused vars, imports, style", ["ok", "catches"], ["none", "not its job"]],
-  ["Conditional hook call", ["ok", "catches"], ["ok", "catches"]],
-  ["Missing effect dep", ["warn", "same file only"], ["ok", "catches"]],
-  ["Unstable dep or context value", ["warn", "same file only"], ["ok", "catches"]],
-  ["Infinite render loop", ["bad", "syntax only"], ["ok", "catches"]],
-  ["Derived state in an effect", ["bad", "syntax only"], ["ok", "catches"]],
-  ["Stale closure", ["bad", "syntax only"], ["ok", "catches"]],
-  ["Cross-component cycle", ["bad", "syntax only"], ["ok", "catches"]],
 ];
 
 const docs = [
-  ["docs/usage.md", `${repo}/blob/main/docs/usage.md`, "every flag, the JSON schema, project detection, exit codes"],
-  ["docs/custom-rules.md", `${repo}/blob/main/docs/custom-rules.md`, "writing rule packs"],
-  ["docs/limitations.md", `${repo}/blob/main/docs/limitations.md`, "what it misses and what it may report wrongly"],
-  ["docs/plugins.md", `${repo}/blob/main/docs/plugins.md`, "the Rust API for custom discoverers and resolvers"],
-  ["docs/adr/", `${repo}/tree/main/docs/adr`, "how the analysis works and why each decision was made"],
+  ["usage", doc("usage.md"), "every flag, JSON schema, exit codes"],
+  ["limitations", doc("limitations.md"), "what it misses, what it may get wrong"],
+  ["precision-log", doc("precision-log.md"), "every wrong warning, on 14 repositories"],
+  ["custom-rules", doc("custom-rules.md"), "rule packs"],
+  ["plugins", doc("plugins.md"), "the Rust API"],
+  ["adr", `${repo}/tree/main/docs/adr`, "every design decision"],
 ];
 ---
 
 <Base
-  title="reactant: a static analyzer for React hook bugs"
-  description="Finds React hook bugs that ESLint has no rule for: infinite render loops, derived state, stale closures, cross-component cycles. Whole-program analysis, shipped as a CLI, an npm package and a GitHub Action."
+  title="reactant, a static checker for React hooks"
+  description="reactant reads your whole React project and finds the hook bugs that live between files: infinite render loops, stale values, useless re-renders, cross-component cycles that no ESLint rule catches. One command, no config."
 >
-  <div class="page">
-    <nav class="topnav">
-      <div class="container nav-inner">
-        <a class="nav-name" href="#top">reactant</a>
-        <ul class="nav-links">
-          {sections.map(([href, label]) => (
-            <li class="nav-section"><a href={href}>{label}</a></li>
-          ))}
-          <li><a href={repo} target="_blank" rel="noopener">GitHub</a></li>
-          <li><ThemeToggle /></li>
-        </ul>
-      </div>
+  <header class="wrap">
+    <div class="top">
+      <a class="name" href="#top">reactant</a>
+      <nav>
+        <a href={repo} target="_blank" rel="noopener">GitHub</a>
+        <a href={npm} target="_blank" rel="noopener">npm</a>
+        <a href="#docs">Docs</a>
+        <span class="v">v{version}</span>
+        <ThemeToggle />
+      </nav>
+    </div>
+  </header>
 
-      {/* Narrow screens only: the same anchors on a second, scrollable row,
-          because the bar above drops them and the page is long enough that
-          losing every anchor leaves nothing but scrolling. */}
-      <div class="nav-scroll">
-        <ul class="container nav-scroll-inner">
-          {sections.map(([href, label]) => (
-            <li><a href={href}>{label}</a></li>
-          ))}
-        </ul>
-      </div>
-    </nav>
-
-    <header id="top" class="hero">
-      <div class="container hero-inner">
-        <h1>reactant</h1>
-        <p class="hero-title">A static analyzer for React hook bugs</p>
-        <p class="hero-bio">
-          Finds the bugs ESLint has no rule for: <strong>infinite render loops</strong>, effects that
-          mirror state instead of computing it, callbacks stuck reading a value <strong
-            >frozen at mount</strong
-          >, providers that re-render every consumer on every render.
+  <main id="top">
+    {/* ── hero: what it is, the command, two files, the run ─────────────── */}
+    <div class="wrap hero stack-lg">
+      <div class="stack">
+        <p class="eyebrow">reactant, a static checker for React hooks</p>
+        <h1>Finds the infinite render loops, stale values and useless re-renders in your React project, across files.</h1>
+        <p class="lead">
+          reactant reads your React project as one program. It follows a state setter from the
+          component that owns it to the effect in another file that calls it, and reports the loop on
+          the component that suffers it.
         </p>
-        <div class="install">
-          <div class="install-cmd">
-            <Code code={install} lang="sh" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
-              defaultColor={false} />
+      </div>
+
+      <div>
+        <div class="cmd">
+          <code><span class="npx">npx</span> reactant-analyzer</code>
+          <div class="cmd-links">
             {/* Hidden until the script that fills it runs: with no JS the
-                button would sit there doing nothing. */}
-            <button class="copy" type="button" id="install-copy" data-copy={install} hidden>
-              <span class="copy-label">Copy</span>
-            </button>
+                button would sit there doing nothing, and the command is still
+                one click to select (user-select: all). */}
+            <button class="copy" type="button" data-copy={install} hidden>copy</button>
+            <a href={repo} target="_blank" rel="noopener">GitHub</a>
+            <a href={npm} target="_blank" rel="noopener">npm</a>
+            <a href="#docs">Documentation</a>
           </div>
-          <p class="install-note">
-            Nothing to install, nothing to configure. Node 20 or later. Vite and Next.js projects are
-            detected on their own, tsconfig <code>paths</code> included.
-          </p>
         </div>
-        <div class="hero-links">
-          <a class="btn" href={repo} target="_blank" rel="noopener">GitHub</a>
-          <a class="btn btn-ghost" href={npm} target="_blank" rel="noopener">npm</a>
-          <a class="btn btn-ghost" href="#docs">Documentation</a>
-        </div>
-
-        <p class="badges">
-          <a href={`${npm}/v/${version}`} target="_blank" rel="noopener">v{version}</a>
-          <span aria-hidden="true">·</span>
-          <a href={`${repo}/blob/main/LICENSE`} target="_blank" rel="noopener">MIT</a>
-          <span aria-hidden="true">·</span>
-          <span>Node 20+</span>
-          <span aria-hidden="true">·</span>
-          <span>no config</span>
-          <span aria-hidden="true">·</span>
-          <a href={`${repo}/releases`} target="_blank" rel="noopener">Changelog</a>
+        <p class="cmd-note">
+          Nothing to add to your project, nothing to configure. Node 20 or later. Vite and Next.js
+          projects are detected on their own, tsconfig <code>paths</code> included.
         </p>
       </div>
 
-      <div class="container demo">
-        <ul class="picker" role="tablist" aria-label="Examples">
+      <figure>
+        <div class="pair wired" id="pair">
           {
-            demos.map((demo, i) => (
-              <li>
-                <button
-                  class="pick"
-                  type="button"
-                  role="tab"
-                  data-demo={demo.id}
-                  aria-selected={i === 0 ? "true" : "false"}
-                >
-                  {demo.label}
-                </button>
-              </li>
-            ))
-          }
-        </ul>
-
-        <div class="panes">
-          <div class="pane-src">
-            <div class="pane-bar">
-              <span class="path" id="demo-path">{demos[0].path}</span>
-              <button class="reset" type="button" id="demo-reset" hidden>Reset</button>
-            </div>
-            <div class="editor-wrap" id="demo-wrap">
-              {/* Painted under the textarea, which goes transparent once the
-                  script takes over. Until then the plain text is what shows,
-                  so the code is readable with no JS and never flashes blank. */}
-              <pre class="hl" id="demo-hl" aria-hidden="true"></pre>
-              <textarea
-                id="demo-editor"
-                class="editor"
-                wrap="off"
-                spellcheck="false"
-                autocapitalize="off"
-                autocorrect="off"
-                aria-label="Source code">{demos[0].source}</textarea
-              >
-            </div>
-          </div>
-
-          <figure class="terminal">
-            <div class="terminal-bar">
-              <span class="dots"><i></i><i></i><i></i></span>
-              <span class="terminal-title">reactant check .</span>
-            </div>
-            <pre class="out" id="demo-out" aria-live="polite" aria-busy="true">Loading…</pre>
-          </figure>
-        </div>
-
-        {/* The perf numbers used to sit in a caption under the demo, where the
-            one figure that answers "can I put this in CI?" read as a footnote. */}
-        <dl class="stats">
-          <div class="stat">
-            <dt>528 files in 1.8s</dt>
-            <dd>excalidraw, whole-program, from cold</dd>
-          </div>
-          <div class="stat">
-            <dt>4,195 files in 76s</dt>
-            <dd>dub, the same run on a monorepo</dd>
-          </div>
-          <div class="stat">
-            <dt>17 diagnostics</dt>
-            <dd>most with no ESLint counterpart</dd>
-          </div>
-        </dl>
-        <p class="stats-note">
-          A whole-program fixpoint, not a pass per file.
-        </p>
-      </div>
-    </header>
-
-    <main>
-      <section id="example" class="section">
-        <div class="container">
-          <h2 class="section-title">Two correct files, one infinite loop</h2>
-          <p>
-            <code>Dashboard</code> owns the state. <code>Filters</code> trims it and hands it back.
-            Neither file is wrong on its own.
-          </p>
-          <div class="code-pair">
-            {
-              crossFiles.map((file) => (
-                <div class="pane-src">
-                  <div class="pane-bar">
-                    <span class="path">{file.path}</span>
-                    {/* One per file: a visitor who edited `Filters` wants that
-                        file back, not the whole example. */}
-                    <button class="reset" type="button" data-xfile-reset={file.id} hidden>
-                      Reset
-                    </button>
+            crossFiles.map((file, i) => (
+              <>
+                {i === 1 && <div class="gutter" aria-hidden="true" />}
+                <div class="pane">
+                  <div class="pane-head">
+                    <code>{file.path}</code>
+                    <span class="role">
+                      <span>{file.role}</span>
+                      {/* One per file: a visitor who edited `Filters` wants
+                          that file back, not the whole example. */}
+                      <button class="reset" type="button" data-xfile-reset={file.id} hidden>
+                        reset
+                      </button>
+                    </span>
                   </div>
                   <div class="editor-wrap" data-xfile={file.id}>
-                    {/* Painted under the textarea, which goes transparent once the
-                        script takes over. Until then the plain text is what shows. */}
+                    {/* Painted under the textarea, which goes transparent once
+                        the script takes over. Until then the plain text is what
+                        shows, so the code is readable with no JS and never
+                        flashes blank. */}
                     <pre class="hl" aria-hidden="true" />
                     <textarea
                       class="editor"
@@ -519,861 +372,956 @@ const docs = [
                       autocorrect="off"
                       aria-label={file.path}>{file.source}</textarea
                     >
+                    {/* The wire: the underline of `setQuery` continues past
+                        `] =` to the pane edge, crosses the gutter, and picks up
+                        again under the indent before `onChange`. Drawn on row 5
+                        of each file, so it is removed on the first edit. */}
+                    <i class={`wire ${file.id === "dashboard" ? "from" : "to"}`} aria-hidden="true" />
                   </div>
                 </div>
-              ))
-            }
-          </div>
-
-          <figure class="terminal static-run">
-            <div class="terminal-bar">
-              <span class="dots"><i></i><i></i><i></i></span>
-              <span class="terminal-title">reactant check .</span>
-            </div>
-            <pre class="out" id="xfile-out" aria-live="polite" set:html={crossFileOutput} />
-          </figure>
-          <div class="callout">
-            <p>
-              The spread builds a new object every run. <code>Object.is</code> fails, the parent re-renders,
-              the child gets a new <code>value</code>, the effect fires again.
-            </p>
-            <p>
-              ESLint passes both files: the deps array is complete, no hook is conditional. reactant
-              follows <code>setQuery</code> across the import. The finding names both ends of the cycle:
-              the effect in <code>Filters</code>, the setter it borrows from <code>Dashboard</code>.
-            </p>
-          </div>
+              </>
+            ))
+          }
         </div>
-      </section>
+      </figure>
 
-      <section id="rules" class="section">
-        <div class="container">
-          <h2 class="section-title">What it catches</h2>
+      <figure>
+        <div class="out-label">
+          the run on these two files <span class="cmdline">reactant check . --show-clean</span>
+        </div>
+        <pre class="out" id="xfile-out" aria-live="polite" set:html={pairOutput} />
+        <figcaption>
+          The spread builds a new object every run. <code>Object.is</code> says it changed,
+          <b>Dashboard</b> re-renders, <b>Filters</b> gets a new <code>value</code>, the effect runs
+          again. It is a warning not an error because the analyzer saw the loop but could not prove that
+          nothing stops it. 
+        </figcaption>
+      </figure>
+    </div>
+
+    {/* ── 01 what else crosses the gap, anatomy of a finding ────────────── */}
+    <section id="finding">
+      <div class="wrap stack-lg">
+        <div class="stack">
+          <h2>Anything that leaves a file is followed to where it lands.</h2>
           <p>
-            Seventeen diagnostics. Most have no ESLint counterpart. <code>reactant rules</code> lists them
-            all, <code>reactant explain &lt;rule&gt;</code> gives an example and a fix for one.
+            A setter handed down as a prop, a custom hook imported from another file, a helper that
+            wraps the hook call... and
+            <code>--trace</code> prints the steps that led there, with a file and line for each.
           </p>
-          <div class="families">
+        </div>
+
+        <div class="anatomy">
+          <figure>
+            {/* Hidden until the script that answers a click runs: without it
+                the tabs would sit there doing nothing, and the first example
+                is already on the page. */}
+            <ul class="picker" role="tablist" aria-label="Examples" hidden>
+              {
+                demos.map((demo, i) => (
+                  <li>
+                    <button
+                      class="pick"
+                      type="button"
+                      role="tab"
+                      data-demo={demo.id}
+                      aria-selected={i === 0 ? "true" : "false"}
+                    >
+                      {demo.label}
+                    </button>
+                  </li>
+                ))
+              }
+            </ul>
+            <div class="pane">
+              <div class="pane-head">
+                <code id="demo-path">{demos[0].path}</code>
+                <span class="role">
+                  <span>edit it, the run repeats</span>
+                  <button class="reset" type="button" id="demo-reset" hidden>reset</button>
+                </span>
+              </div>
+              <div class="editor-wrap" id="demo-wrap">
+                <pre class="hl" aria-hidden="true" />
+                <textarea
+                  class="editor"
+                  id="demo-editor"
+                  wrap="off"
+                  spellcheck="false"
+                  autocapitalize="off"
+                  autocorrect="off"
+                  aria-label="Source code">{demos[0].source}</textarea
+                >
+              </div>
+            </div>
+            <div class="out-label">
+              <span class="cmdline">reactant check <span id="demo-cmd-path">{demos[0].path}</span> --trace --show-clean</span>
+            </div>
+            <pre class="out" id="demo-out" aria-live="polite" set:html={demoOutput} />
+          </figure>
+          <ol class="notes">
+            <li data-n="1">
+              The component that suffers the bug, and its file. In a two-file loop this is the child
+              whose effect fires, not the parent that owns the state.
+            </li>
+            <li data-n="2">
+              How sure it is. <b>error</b> means the analyzer proved it. <b>warn</b> means it saw the
+              shape but could not rule out a path that stops it, as with <b>Filters</b> above.
+            </li>
+            <li data-n="3">
+              The step it took, printed by <code>--trace</code>: the write or the read that keeps the
+              finding alive, with its own line. A clean run prints only the component line and its tick.
+            </li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    {/* ── 02 run it on yours ────────────────────────────────────────────── */}
+    <section id="run">
+      <div class="wrap stack-lg">
+        <div class="stack">
+          <h2>It says what it read, and what it did not.</h2>
+        </div>
+
+        <div>
+          <div class="cmd big">
+            <code><span class="npx">npx</span> reactant-analyzer</code>
+            <div class="cmd-links">
+              <button class="copy" type="button" data-copy={install} hidden>copy</button>
+              <a href={doc("usage.md")} target="_blank" rel="noopener">every flag</a>
+              <a href={doc("usage.md")} target="_blank" rel="noopener">exit codes</a>
+            </div>
+          </div>
+          <p class="cmd-note">
+            Node 20 or later. Nothing is added to your ESLint config or your build. Pointing it at a
+            subdirectory (<code>npx reactant-analyzer src/features</code>) still runs inside the
+            project the config files describe.
+          </p>
+        </div>
+
+        <div class="cols">
+          <figure>
+            <div class="col-head">when every file was read</div>
+            <pre class="out"><span class="green">✓  37 file(s) no issues found.</span></pre>
+            <figcaption>
+              That line is a claim about your code, so it is only printed when the run read
+              everything it was pointed at.
+            </figcaption>
+          </figure>
+          <figure>
+            <div class="col-head">when something could not be read</div>
+            <pre class="out"><span class="yellow">⚠  37 file(s), no findings, but parts of this run were not analyzed,
+   so this is not a clean bill.</span>
+   not analyzed:
+     • no tsconfig `paths` found, so aliased imports (e.g. `@/...`) stay unresolved …
+     • 3 imported file(s) resolved outside the analysed set and were never read …</pre>
+            <figcaption>
+              The same block prints under a run that did find things. The counts then cover only
+              what was read. A file it was pointed at and could not read, or an import that resolved
+              to a file it did not read, is listed here rather than counted as clean.
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    {/* ── 03 what it catches ────────────────────────────────────────────── */}
+    <section id="rules">
+      <div class="wrap stack-lg">
+        <div class="stack">
+          <h2>Seventeen rules, sorted by what you see in the browser.</h2>
+          <p>
+            The left column is what you saw in the browser. The right is the rule that names it.
+            <code>reactant rules</code> lists them, plus two informational entries the run uses to say
+            where it could not look. <code>reactant explain &lt;rule&gt;</code> gives an example and a
+            fix for one.
+          </p>
+        </div>
+
+        <table class="rules">
+          <tbody>
             {
               families.map((family) => (
-                <div class="family">
-                  <h3 class="family-label">{family.label}</h3>
-                  {family.note && <p class="family-note">{family.note}</p>}
-                  <dl class="rule-list">
-                    {family.rules.map(([name, what]) => (
-                      <div class="rule">
-                        <dt><code>{name}</code></dt>
-                        <dd>{what}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              ))
-            }
-          </div>
-        </div>
-      </section>
-
-      <section id="comparison" class="section band">
-        <div class="container">
-          <h2 class="section-title">Where reactant fits</h2>
-          <p>
-            reactant does not replace ESLint or React Compiler. Each one runs at a different moment.
-            ESLint checks the file you are typing in, the compiler rewrites your code at build time,
-            and reactant checks the whole project in CI. Installing reactant changes nothing in your
-            ESLint config and nothing in your build.
-          </p>
-
-          <div class="roles">
-            {
-              roles.map((role) => (
-                <div class="role">
-                  <h3 class="role-name">{role.name}</h3>
-                  <p class="role-when">
-                    {role.when} <span class="role-cost">{role.cost}</span>
-                  </p>
-                  <p class="role-for">{role.role}</p>
-                  <p class="role-limit">{role.limit}</p>
-                </div>
-              ))
-            }
-          </div>
-
-          <h3 class="table-title">What each one catches</h3>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Bug class</th>
-                  <th>ESLint</th>
-                  <th>reactant</th>
-                </tr>
-              </thead>
-              <tbody>
-                {
-                  matrix.map(([bug, ...cells]) => (
+                <>
+                  <tr class="group"><th colspan="2">{family.label}</th></tr>
+                  {family.rules.map(([symptom, rule, what]) => (
                     <tr>
-                      <th scope="row">{bug}</th>
-                      {cells.map(([verdict, label], i) => (
-                        <td data-tool={tools[i]}>
-                          <span class:list={["chip", verdict]}>{label}</span>
-                        </td>
-                      ))}
+                      <td>{symptom}</td>
+                      <td>
+                        <code class="rule">{rule}</code><span class="what">{what}</span>
+                      </td>
                     </tr>
-                  ))
-                }
-              </tbody>
-            </table>
-          </div>
-      </section>
-
-      <section id="ci" class="section">
-        <div class="container">
-          <h2 class="section-title">In CI</h2>
-          <p>
-            The repository is also a GitHub Action. Every finding becomes an annotation on the file and
-            line that produced it.
-          </p>
-          <Code code={workflow} lang="yaml" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
-            defaultColor={false} />
-          <p class="note">
-            Inputs and outputs are documented in <a
-              href={`${repo}/blob/main/action.yml`}
-              target="_blank"
-              rel="noopener">action.yml</a
-            >.
-          </p>
-        </div>
-      </section>
-
-      <section id="ai" class="section">
-        <div class="container">
-          <h2 class="section-title">For AI-generated code</h2>
-          <p>
-            LLMs write exactly these bugs, and they write them behind enough abstraction that AST
-            patterns never fire. <code>--format json</code> gives a machine-readable report where every
-            finding carries a witness chain, the typed steps that led to it, so an agent can fix the cause
-            instead of the line.
-          </p>
-          <p>reactant also ships as a Claude Code plugin:</p>
-          <Code code={plugin} lang="text" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
-            defaultColor={false} />
-          <p class="note">
-            <code>reactant-triage</code> runs the analyzer and sorts each finding into true positive,
-            false positive, or not worth fixing. <code>reactant-rules</code> writes custom rule packs.
-          </p>
-        </div>
-      </section>
-
-      <section id="packs" class="section">
-        <div class="container">
-          <h2 class="section-title">Team rules</h2>
-          <p>
-            Team conventions ship as rule packs, written against facts the engine already resolved
-            (which hook a value came from, what a setter writes, what a selector returns) rather than
-            against source patterns, so they survive refactoring. Written in JSON or JavaScript.
-          </p>
-          <Code code={packConfig} lang="json" themes={{ light: "github-light", dark: "github-dark-dimmed" }}
-            defaultColor={false} />
-        </div>
-      </section>
-
-      <section id="docs" class="section">
-        <div class="container">
-          <h2 class="section-title">Documentation</h2>
-          <ul class="doc-list">
-            {
-              docs.map(([name, href, desc]) => (
-                <li>
-                  {/* All on one line: any newline here collapses to a space and
-                      the colon drifts off the name it belongs to. */}
-                  {/* prettier-ignore */}
-                  <a href={href} target="_blank" rel="noopener">{name}</a><span class="muted">: {desc}</span>
-                </li>
+                  ))}
+                </>
               ))
             }
-          </ul>
-          <div class="tags">
-            <span class="tag">Rust</span>
-            <span class="tag">Abstract interpretation</span>
-            <span class="tag">WebAssembly</span>
-            <span class="tag">React</span>
-            <span class="tag">MIT licensed</span>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* ── 04 where it fits ──────────────────────────────────────────────── */}
+    <section id="fits">
+      <div class="wrap stack-lg">
+        <div class="stack">
+          <h2>Keep ESLint. Keep the compiler. Add this before merge.</h2>
+          <p>
+            Keep <code>eslint-plugin-react-hooks</code> in the editor. It runs as you type and is right
+            about the rules of hooks inside a file. Keep React Compiler in the build if you use it: it
+            caches values where it compiles, but it cannot break a loop whose value keeps changing, and
+            it skips components it cannot compile without saying so. Add reactant before merge. It is
+            slower than a linter because it reads the whole project at once.
+          </p>
+        </div>
+
+        <table class="fit">
+          <thead>
+            <tr><th>where</th><th>tool</th><th>what it reads</th><th class="num-col">one run</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>In the editor</td>
+              <td><code class="rule">eslint-plugin-react-hooks</code></td>
+              <td>the file you are typing in, as syntax</td>
+              <td class="num-col">milliseconds</td>
+            </tr>
+            <tr>
+              <td>In the build</td>
+              <td>React Compiler</td>
+              <td>one function at a time, to memoize it</td>
+              <td class="num-col">part of the build</td>
+            </tr>
+            <tr>
+              <td>Before merge</td>
+              <td><code class="rule">reactant</code></td>
+              <td>the whole project, as values across renders and files</td>
+              <td class="num-col">1.8 s for 528 files (excalidraw), 76 s for 4,195 (dub)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {/* ── 05 in CI ──────────────────────────────────────────────────────── */}
+    <section id="ci">
+      <div class="wrap stack-lg">
+        <div class="stack">
+          <p class="eyebrow"><span class="num">05</span> In CI</p>
+          <h2>The repository is also a GitHub Action. Every finding becomes a line annotation on the PR.</h2>
+        </div>
+
+        <div class="cols">
+          <figure>
+            <div class="col-head">.github/workflows/reactant.yml</div>
+            <pre class="block wrap-ok">{workflow}</pre>
+            <figcaption>
+              Inputs and outputs are in <a href={`${repo}/blob/main/action.yml`} target="_blank" rel="noopener">action.yml</a>.
+              <code>--format json</code> gives the same report to machines, one JSON document with the
+              steps behind every finding.
+            </figcaption>
+          </figure>
+          <div class="stack">
+            <h3>For code an assistant wrote</h3>
+            <p>
+              AI assistants write these shapes a lot, behind enough helpers that a pattern match never
+              fires. Because the JSON carries the steps that led to each finding, an agent can fix the
+              cause instead of the line. reactant also ships as a Claude Code plugin:
+            </p>
+            <pre class="block wrap-ok">{plugin}</pre>
+            <p class="small muted">
+              <code>reactant-triage</code> runs the analyzer and sorts each finding into real, false,
+              or not worth fixing. <code>reactant-rules</code> writes custom rule packs.
+            </p>
+            <h3>Your team's own rules</h3>
+            <p>
+              You can write your own team conventions that ships as rule packs, in JSON or JavaScript, written against what the
+              analyzer already worked out (which hook a value came from, what a setter writes) rather
+              than against source patterns, so they survive refactoring. See
+              <a href={doc("custom-rules.md")} target="_blank" rel="noopener">docs/custom-rules.md</a>.
+            </p>
           </div>
         </div>
-      </section>
-    </main>
+      </div>
+    </section>
 
-    <footer class="footer">
-      <div class="container footer-inner">
-        <p><strong>reactant</strong>, built by <a href="https://rboud.com">Réda Boudrouss</a></p>
+    {/* ── 06 trust ──────────────────────────────────────────────────────── */}
+    <section id="limits">
+      <div class="wrap stack-lg">
+        <div class="stack">
+          <h2>When it says error, it is a bug. When it is not sure, it says warn.</h2>
+        </div>
+
+        <div class="cols">
+          <div>
+            <div class="col-head"><span class="accent">error</span> is proven</div>
+            <p>
+              An Error can only be produced from a proof. The code that reports rules has no way to
+              mark something Error on a guess. So an Error is a
+              bug in your code. If one ever is not, that is a bug in the
+              analyzer.
+            </p>
+          </div>
+          <div>
+            <div class="col-head"><span class="accent">warn</span> is a maybe</div>
+            <p>
+              Warnings can be wrong. A finding that turns out to be fine is always a Warning or below,
+              never an Error. Every known case is listed in the
+              <a href={doc("limitations.md")} target="_blank" rel="noopener">limitations page</a> with
+              its issue, and <code>--fail-on error</code> lets CI ignore Warnings while they still
+              annotate the PR. If one is wrong on your code,
+              <a href={`${repo}/issues`} target="_blank" rel="noopener">open an issue</a>: wrong
+              warnings are filed under <code>precision-fp</code>, measured, and listed on the
+              limitations page.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {/* ── 07 how it works ───────────────────────────────────────────────── */}
+    <section class="how" id="how">
+      <div class="wrap stack">
+        <h2>It runs your render in its head until the values stop moving.</h2>
         <p>
-          <a href={repo} target="_blank" rel="noopener">GitHub</a>
-          &nbsp;·&nbsp;
-          <a href={npm} target="_blank" rel="noopener">npm</a>
-          &nbsp;·&nbsp;
-          <a href={`${repo}/issues`} target="_blank" rel="noopener">Issues</a>
+          reactant turns each component into a small model of its render and its effects, and works
+          out what every <code>useState</code> can hold from one render to the next
+          <span class="term">(abstract interpretation, in the textbook sense)</span>. It repeats the
+          render until nothing changes any more, then reports the shapes that never settle, go stale,
+          or re-render everyone. Setters are followed through props and imports, custom hooks are read
+          as if inlined, and the finding is placed on the component that suffers it.
+        </p>
+        <p>
+          An Error can only be produced from a proof; the analysis errs the other way
+          <span class="term">
+            (we try to be sound: it would rather warn too much than miss a bug, so what it misses is listed
+            as a limit rather than hidden)
+          </span>. The rules for how React re-renders are taken from React-tRace, a formal model of
+          hooks published at OOPSLA 2025, so the analyzer and React agree on what a re-render is.
         </p>
       </div>
-    </footer>
-  </div>
+    </section>
+  </main>
 
-  <script id="demo-data" type="application/json" set:html={JSON.stringify(demos)} is:inline />
-  <script
-    id="cross-file-data"
-    type="application/json"
-    set:html={JSON.stringify(crossFiles)}
-    is:inline
-  />
+  <footer id="docs">
+    <div class="wrap">
+      <div class="colophon">
+        <p class="doc-head">Documentation</p>
+        <ul class="docs">
+          {
+            docs.map(([name, href, desc]) => (
+              <li>
+                <a href={href} target="_blank" rel="noopener"><code>{name}</code></a> <span>{desc}</span>
+              </li>
+            ))
+          }
+        </ul>
+        <p>
+          reactant v{version}. Written in Rust, shipped as WebAssembly. MIT licensed. Built by <a href="https://rboud.com">Réda Boudrouss</a>. Every
+          run shown on this page is the analyzer's own output on the code beside it, at build time and
+          again in your browser as you edit.
+        </p>
+        <p class="cite">
+          Re-render semantics after Lee, Ahn and Yi, React-tRace, OOPSLA 2025.
+          <a href="https://arxiv.org/abs/2507.05234" target="_blank" rel="noopener">arxiv.org/abs/2507.05234</a>
+        </p>
+        <p class="links">
+          <a href={repo} target="_blank" rel="noopener">GitHub</a>
+          <a href={npm} target="_blank" rel="noopener">npm</a>
+          <a href={`${repo}/issues`} target="_blank" rel="noopener">Issues</a>
+          <a href={`${repo}/releases`} target="_blank" rel="noopener">Changelog</a>
+        </p>
+      </div>
+    </div>
+  </footer>
 
-  {/* Kept out of the demo module below on purpose: that one imports the
-      WebAssembly analyzer, and a failure there must not take the copy button
-      with it. */}
+  {/* The sources the live runs read back. In the markup once, here as data
+      once: the panes are what the visitor edits, this is where a reset returns. */}
+  <script is:inline type="application/json" id="cross-file-data" set:html={JSON.stringify(crossFiles)} />
+  <script is:inline type="application/json" id="demo-data" set:html={JSON.stringify(demos)} />
+
+  {/* Inline and separate from the module below: that one loads the
+      WebAssembly analyzer, and a failure there must not take the copy buttons
+      down with it. */}
   <script is:inline>
     (() => {
-      const button = document.getElementById("install-copy");
-      if (!button || !navigator.clipboard) return;
-      const label = button.querySelector(".copy-label");
-      button.hidden = false;
-
-      let revert;
-      button.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(button.dataset.copy);
-        } catch {
-          return; // A denied permission leaves the command there to select.
-        }
-        label.textContent = "Copied";
-        button.dataset.copied = "";
-        clearTimeout(revert);
-        revert = setTimeout(() => {
-          label.textContent = "Copy";
-          delete button.dataset.copied;
-        }, 1600);
-      });
+      for (const button of document.querySelectorAll(".copy")) {
+        button.hidden = false;
+        let revert;
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(button.dataset.copy);
+          } catch {
+            // Clipboard refused: select the command instead, it is one click away anyway.
+            const code = button.closest(".cmd").querySelector("code");
+            const range = document.createRange();
+            range.selectNodeContents(code);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            return;
+          }
+          button.textContent = "copied";
+          clearTimeout(revert);
+          revert = setTimeout(() => {
+            button.textContent = "copy";
+          }, 1600);
+        });
+      }
     })();
+  </script>
+
+  <script>
+    import { initWasm, run, UsageError } from "reactant-analyzer/browser";
+    // Vite emits the `.wasm` as an asset and hands back its final URL. Without
+    // this the glue fetches the bytes next to itself, which is the source path in
+    // dev and a hashed chunk with no `.wasm` beside it in a build. The specifier
+    // is an alias onto the file in node_modules, defined in astro.config.mjs
+    // because the package's `exports` map does not expose it.
+    import wasmUrl from "reactant-analyzer/wasm-binary?url";
+    import { ansiToHtml } from "../lib/ansi";
+    import { highlight } from "../lib/highlight";
+    import { annotate } from "../lib/annotate";
+
+    type Source = { id: string; path: string; source: string };
+
+    const crossFiles: Source[] = JSON.parse(
+      document.getElementById("cross-file-data")!.textContent!,
+    );
+
+    // ── panes ─────────────────────────────────────────────────────────────────
+
+    type Pane = {
+      /** What is in the box, which is not the pristine source once edited. */
+      read: () => string;
+      /** Put text in the box and repaint; used by Reset. */
+      load: (text: string) => void;
+    };
+
+    /**
+     * Wire one editable pane: the highlighted layer under the caret, the box
+     * that grows with its content, and a callback for every keystroke.
+     */
+    function mountPane(wrap: HTMLElement, onInput: () => void): Pane {
+      const hl = wrap.querySelector(".hl") as HTMLPreElement;
+      const editor = wrap.querySelector(".editor") as HTMLTextAreaElement;
+
+      /** Keep the painted copy at the same offset as the text over it. */
+      const sync = () => {
+        hl.scrollLeft = editor.scrollLeft;
+        hl.scrollTop = editor.scrollTop;
+      };
+
+      /** Grow the box to its content: a scrollbar on ten lines of code reads badly. */
+      const refresh = () => {
+        editor.rows = editor.value.split("\n").length;
+        hl.innerHTML = highlight(editor.value);
+        sync();
+      };
+
+      editor.addEventListener("input", () => {
+        refresh();
+        onInput();
+      });
+      editor.addEventListener("scroll", sync);
+
+      refresh();
+      // The layer only takes over once it holds something to show.
+      wrap.classList.add("lit");
+
+      return {
+        read: () => editor.value,
+        load(text) {
+          editor.value = text;
+          refresh();
+        },
+      };
+    }
+
+    // ── the runs ──────────────────────────────────────────────────────────────
+
+    // One WebAssembly instance, and the analysis cannot be reentered, so every
+    // run on the page goes through this one chain: the hero pair and the
+    // example below take turns rather than collide.
+    let chain: Promise<unknown> = Promise.resolve();
+
+    function exclusive<T>(job: () => Promise<T>): Promise<T> {
+      const next = chain.then(job, job);
+      chain = next.catch(() => {});
+      return next;
+    }
+
+    type RunOptions = { trace?: boolean; showClean?: boolean };
+
+    /**
+     * An analyze-and-print loop for one output block. `collect` is read at the
+     * last moment, so a run always reports on what is in the boxes when it
+     * starts; `post` gets the last word on the HTML (the example adds its
+     * marks there).
+     */
+    function runner(
+      out: HTMLPreElement,
+      collect: () => Record<string, string>,
+      options: RunOptions,
+      post: (html: string) => string = (html) => html,
+    ) {
+      let running = false;
+      /** A run asked for while one was in flight: the inputs moved under it. */
+      let again = false;
+
+      async function analyze(): Promise<void> {
+        if (running) {
+          again = true;
+          return;
+        }
+        running = true;
+        out.ariaBusy = "true";
+
+        // The analysis holds the thread for its duration, so yield once and let
+        // the browser paint before it starts.
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+
+        try {
+          const { stdout, stderr } = await exclusive(() =>
+            run({ files: collect(), format: "human", color: true, ...options }),
+          );
+          out.innerHTML = post(ansiToHtml((stdout + stderr).trimEnd())) || "(no output)";
+        } catch (error) {
+          // A finding is a result; only a usage error throws. Anything else is
+          // this page's own fault and should read like it.
+          const prefix = error instanceof UsageError ? "usage error" : "demo error";
+          out.innerHTML = `<span class="red">${prefix}:</span> ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+        } finally {
+          out.ariaBusy = "false";
+          running = false;
+        }
+
+        // Whatever changed mid-run is in the inputs now, so honour it.
+        if (again) {
+          again = false;
+          await analyze();
+        }
+      }
+
+      return analyze;
+    }
+
+    // Typing re-runs on its own: a run is a couple of milliseconds, and a Run
+    // button is one more thing to explain.
+    function debounced(analyze: () => void): () => void {
+      let timer: number | undefined;
+      return () => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(analyze, 400);
+      };
+    }
+
+    // ── the hero: two files, one run ──────────────────────────────────────────
+
+    const pair = document.getElementById("pair") as HTMLDivElement;
+    const panes = new Map<string, Pane>();
+
+    // Every run reports on both files, whichever one was typed in: the bug is
+    // the pair, and a file checked alone is the reading this page argues
+    // against. The same options as the build-time run, so nothing shifts when
+    // the script takes over: `showClean` is what ticks `Dashboard`.
+    const pairAnalyze = runner(
+      document.getElementById("xfile-out") as HTMLPreElement,
+      () =>
+        Object.fromEntries(
+          crossFiles.map((file) => [file.path, panes.get(file.id)!.read()]),
+        ),
+      { showClean: true },
+    );
+    const onPairInput = debounced(pairAnalyze);
+
+    const pristine = () =>
+      crossFiles.every((file) => panes.get(file.id)!.read() === file.source);
+
+    for (const file of crossFiles) {
+      const wrap = document.querySelector(`[data-xfile="${file.id}"]`) as HTMLDivElement;
+      const reset = document.querySelector(`[data-xfile-reset="${file.id}"]`) as HTMLButtonElement;
+
+      const pane: Pane = mountPane(wrap, () => {
+        // Shown on the keystroke, not on the run 400ms later: the button has to
+        // answer the edit that put it there. The wire between the panes is
+        // drawn on row 5 of the pristine sources, so the first edit takes it
+        // down; a reset of both files brings it back.
+        reset.hidden = pane.read() === file.source;
+        pair.classList.toggle("wired", pristine());
+        onPairInput();
+      });
+      panes.set(file.id, pane);
+
+      reset.addEventListener("click", () => {
+        pane.load(file.source);
+        reset.hidden = true;
+        pair.classList.toggle("wired", pristine());
+        pairAnalyze();
+      });
+    }
+
+    // ── the example: one file, six shapes ─────────────────────────────────────
+
+    type Demo = Source & { label: string };
+    const demos: Demo[] = JSON.parse(document.getElementById("demo-data")!.textContent!);
+
+    const picker = document.querySelector(".picker") as HTMLUListElement;
+    const pathLabel = document.getElementById("demo-path") as HTMLElement;
+    const cmdPath = document.getElementById("demo-cmd-path") as HTMLElement;
+    const demoReset = document.getElementById("demo-reset") as HTMLButtonElement;
+
+    /** The visitor's edits, per example; `demos` keeps the pristine text. */
+    const edited = new Map<string, string>();
+    let current = demos[0];
+    const sourceOf = (demo: Demo) => edited.get(demo.id) ?? demo.source;
+
+    const demoAnalyze = runner(
+      document.getElementById("demo-out") as HTMLPreElement,
+      () => {
+        // Remember the edit before reporting on it, so leaving the example and
+        // coming back shows the same text.
+        if (demoPane.read() !== current.source) edited.set(current.id, demoPane.read());
+        return { [current.path]: demoPane.read() };
+      },
+      { trace: true, showClean: true },
+      // The marks the notes point at, re-placed on every run since the output
+      // is rebuilt from scratch each time.
+      annotate,
+    );
+
+    const demoPane = mountPane(document.getElementById("demo-wrap") as HTMLDivElement, () => {
+      demoReset.hidden = demoPane.read() === current.source;
+      debouncedDemo();
+    });
+    const debouncedDemo = debounced(demoAnalyze);
+
+    function select(demo: Demo) {
+      current = demo;
+      pathLabel.textContent = demo.path;
+      cmdPath.textContent = demo.path;
+      demoPane.load(sourceOf(demo));
+      demoReset.hidden = !edited.has(demo.id);
+      for (const button of picker.querySelectorAll<HTMLButtonElement>(".pick")) {
+        button.ariaSelected = String(button.dataset.demo === demo.id);
+      }
+    }
+
+    for (const button of picker.querySelectorAll<HTMLButtonElement>(".pick")) {
+      button.addEventListener("click", () => {
+        const demo = demos.find((d) => d.id === button.dataset.demo);
+        if (!demo || demo === current) return;
+        // Keep the edit that is in the box before leaving it behind.
+        if (demoPane.read() !== current.source) edited.set(current.id, demoPane.read());
+        select(demo);
+        demoAnalyze();
+      });
+    }
+
+    demoReset.addEventListener("click", () => {
+      edited.delete(current.id);
+      demoPane.load(current.source);
+      demoReset.hidden = true;
+      demoAnalyze();
+    });
+
+    // ── start ─────────────────────────────────────────────────────────────────
+
+    // Instantiate up front, so the first run is as quick as the rest and a
+    // failed fetch surfaces here rather than as a box that never fills in. Both
+    // output blocks already hold the build-time run of the sources they show,
+    // so they are left alone until the visitor edits or picks something; the
+    // tabs only appear once there is an analyzer to answer them.
+    initWasm(wasmUrl).then(
+      () => {
+        picker.hidden = false;
+      },
+      (error: unknown) => {
+        // The build-time outputs are still true; only the re-running stops.
+        console.error("could not load the analyzer:", error);
+      },
+    );
   </script>
 </Base>
 
-<script>
-  import { initWasm, run, UsageError } from "reactant-analyzer/browser";
-  // Vite emits the `.wasm` as an asset and hands back its final URL. Without
-  // this the glue fetches the bytes next to itself, which is the source path in
-  // dev and a hashed chunk with no `.wasm` beside it in a build. The specifier
-  // is an alias onto the file in node_modules, defined in astro.config.mjs
-  // because the package's `exports` map does not expose it.
-  import wasmUrl from "reactant-analyzer/wasm-binary?url";
-  import { ansiToHtml } from "../lib/ansi";
-  import { highlight } from "../lib/highlight";
-
-  type Source = { id: string; path: string; source: string };
-  type Demo = Source & { label: string };
-
-  const data = <T,>(id: string): T =>
-    JSON.parse(document.getElementById(id)!.textContent!);
-
-  const demos = data<Demo[]>("demo-data");
-  const crossFiles = data<Source[]>("cross-file-data");
-
-  // ── panes ───────────────────────────────────────────────────────────────────
-
-  type Pane = {
-    /** What is in the box, which is not the pristine source once edited. */
-    read: () => string;
-    /** Put text in the box and repaint; used by the picker and by Reset. */
-    load: (text: string) => void;
-  };
-
-  /**
-   * Wire one editable pane: the highlighted layer under the caret, the box that
-   * grows with its content, and a callback for every keystroke.
-   */
-  function mountPane(wrap: HTMLElement, onInput: () => void): Pane {
-    const hl = wrap.querySelector(".hl") as HTMLPreElement;
-    const editor = wrap.querySelector(".editor") as HTMLTextAreaElement;
-
-    /** Keep the painted copy at the same offset as the text over it. */
-    const sync = () => {
-      hl.scrollLeft = editor.scrollLeft;
-      hl.scrollTop = editor.scrollTop;
-    };
-
-    /** Grow the box to its content: a scrollbar on ten lines of code reads badly. */
-    const refresh = () => {
-      editor.rows = editor.value.split("\n").length;
-      hl.innerHTML = highlight(editor.value);
-      sync();
-    };
-
-    editor.addEventListener("input", () => {
-      refresh();
-      onInput();
-    });
-    editor.addEventListener("scroll", sync);
-
-    refresh();
-    // The layer only takes over once it holds something to show.
-    wrap.classList.add("lit");
-
-    return {
-      read: () => editor.value,
-      load(text) {
-        editor.value = text;
-        refresh();
-      },
-    };
-  }
-
-  // ── the runs ────────────────────────────────────────────────────────────────
-
-  // One WebAssembly instance, and the analysis cannot be reentered, so every
-  // run on the page goes through this one chain: the hero demo and the
-  // cross-file example take turns rather than collide.
-  let chain: Promise<unknown> = Promise.resolve();
-
-  function exclusive<T>(job: () => Promise<T>): Promise<T> {
-    const next = chain.then(job, job);
-    chain = next.catch(() => {});
-    return next;
-  }
-
-  /**
-   * An analyze-and-print loop for one terminal. `collect` is read at the last
-   * moment, so a run always reports on what is in the boxes when it starts.
-   */
-  function runner(out: HTMLPreElement, collect: () => Record<string, string>) {
-    let running = false;
-    /** A run asked for while one was in flight: the inputs moved under it. */
-    let again = false;
-
-    async function analyze(): Promise<void> {
-      if (running) {
-        again = true;
-        return;
-      }
-      running = true;
-      out.ariaBusy = "true";
-
-      // The analysis holds the thread for its duration, so yield once and let
-      // the browser paint before it starts.
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-
-      try {
-        // `trace` and `showClean` are always on: the examples are small enough
-        // that neither adds noise, and both replace a line telling the reader
-        // to rerun with a flag this page has no button for. The cross-file run
-        // needs `showClean` for its point: one file comes back ticked.
-        const { stdout, stderr } = await exclusive(() =>
-          run({
-            files: collect(),
-            format: "human",
-            color: true,
-            trace: true,
-            showClean: true,
-          }),
-        );
-        out.innerHTML = ansiToHtml(stdout + stderr) || "(no output)";
-      } catch (error) {
-        // A finding is a result; only a usage error throws. Anything else is
-        // this page's own fault and should read like it.
-        const prefix = error instanceof UsageError ? "usage error" : "demo error";
-        out.innerHTML = `<span class="red">${prefix}:</span> ${
-          error instanceof Error ? error.message : String(error)
-        }`;
-      } finally {
-        out.ariaBusy = "false";
-        running = false;
-      }
-
-      // Whatever changed mid-run is in the inputs now, so honour it.
-      if (again) {
-        again = false;
-        await analyze();
-      }
-    }
-
-    return analyze;
-  }
-
-  // Typing re-runs on its own: a run is a couple of milliseconds, and a Run
-  // button is one more thing to explain in a hero.
-  function debounced(analyze: () => void): () => void {
-    let timer: number | undefined;
-    return () => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(analyze, 400);
-    };
-  }
-
-  // ── the hero demo: one file, six examples ───────────────────────────────────
-
-  const pathLabel = document.getElementById("demo-path") as HTMLSpanElement;
-  const demoReset = document.getElementById("demo-reset") as HTMLButtonElement;
-  const demoOut = document.getElementById("demo-out") as HTMLPreElement;
-
-  /** The visitor's edits, per example; `demos` keeps the pristine text. */
-  const edited = new Map<string, string>();
-  let current = demos[0];
-
-  const sourceOf = (demo: Demo) => edited.get(demo.id) ?? demo.source;
-
-  const demoAnalyze = runner(demoOut, () => {
-    // Remember the edit before reporting on it, so leaving the example and
-    // coming back shows the same text.
-    if (demoPane.read() !== sourceOf(current)) {
-      edited.set(current.id, demoPane.read());
-      demoReset.hidden = false;
-    }
-    return { [current.path]: demoPane.read() };
-  });
-
-  const demoPane = mountPane(
-    document.getElementById("demo-wrap") as HTMLDivElement,
-    debounced(demoAnalyze),
-  );
-
-  function select(demo: Demo) {
-    current = demo;
-    pathLabel.textContent = demo.path;
-    demoPane.load(sourceOf(demo));
-    demoReset.hidden = !edited.has(demo.id);
-    for (const button of document.querySelectorAll<HTMLButtonElement>(".pick")) {
-      button.ariaSelected = String(button.dataset.demo === demo.id);
-    }
-  }
-
-  for (const button of document.querySelectorAll<HTMLButtonElement>(".pick")) {
-    button.addEventListener("click", () => {
-      const demo = demos.find((d) => d.id === button.dataset.demo);
-      if (!demo || demo === current) return;
-      // Keep the edit that is in the box before leaving it behind.
-      if (demoPane.read() !== sourceOf(current)) {
-        edited.set(current.id, demoPane.read());
-      }
-      select(demo);
-      demoAnalyze();
-    });
-  }
-
-  demoReset.addEventListener("click", () => {
-    edited.delete(current.id);
-    demoPane.load(current.source);
-    demoReset.hidden = true;
-    demoAnalyze();
-  });
-
-  // ── the cross-file example: two files, one run ──────────────────────────────
-
-  const xfileOut = document.getElementById("xfile-out") as HTMLPreElement;
-  const xfilePanes = new Map<string, Pane>();
-
-  // Every run reports on both files, whichever one was typed in: the bug is
-  // the pair, and a file checked alone is the reading this section argues
-  // against.
-  const xfileAnalyze = runner(xfileOut, () =>
-    Object.fromEntries(
-      crossFiles.map((file) => [file.path, xfilePanes.get(file.id)!.read()]),
-    ),
-  );
-
-  const onCrossFileInput = debounced(xfileAnalyze);
-
-  for (const file of crossFiles) {
-    const wrap = document.querySelector(
-      `[data-xfile="${file.id}"]`,
-    ) as HTMLDivElement;
-    const reset = document.querySelector(
-      `[data-xfile-reset="${file.id}"]`,
-    ) as HTMLButtonElement;
-
-    const pane: Pane = mountPane(wrap, () => {
-      // Shown on the keystroke, not on the run 400ms later: the button has to
-      // answer the edit that put it there.
-      reset.hidden = pane.read() === file.source;
-      onCrossFileInput();
-    });
-    xfilePanes.set(file.id, pane);
-
-    reset.addEventListener("click", () => {
-      pane.load(file.source);
-      reset.hidden = true;
-      xfileAnalyze();
-    });
-  }
-
-  // ── start ───────────────────────────────────────────────────────────────────
-
-  // Instantiate up front, so the first run is as quick as the rest and a failed
-  // fetch surfaces here rather than as a box that never fills in.
-  initWasm(wasmUrl).then(
-    () => {
-      demoAnalyze();
-      // The cross-file terminal already holds the build-time run of the same
-      // sources, so it is left alone until the visitor edits something.
-    },
-    (error: unknown) => {
-      const message = `<span class="red">could not load the analyzer:</span> ${
-        error instanceof Error ? error.message : String(error)
-      }`;
-      demoOut.innerHTML = message;
-      demoOut.ariaBusy = "false";
-      // The cross-file terminal keeps its build-time output, which is still
-      // true; only the re-running stops.
-    },
-  );
-</script>
-
 <style>
-  .page {
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-  }
-
-  .container {
+  .wrap {
     width: 100%;
-    max-width: var(--container);
+    max-width: 1120px;
     margin-inline: auto;
-    padding-inline: 1.5rem;
+    padding-inline: 16px;
   }
-
-  /* ── nav ── */
-  .topnav {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    background: var(--nav-bg);
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .nav-inner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    height: 3.5rem;
-  }
-
-  .nav-name {
-    font-family: var(--font-mono);
-    font-weight: 500;
-    font-size: 0.95rem;
-    color: var(--text);
-    letter-spacing: 0.02em;
-  }
-
-  .nav-links {
-    display: flex;
-    gap: 1.5rem;
-    list-style: none;
-  }
-
-  .nav-links a {
-    color: var(--text-muted);
-    font-size: 0.9rem;
-    font-weight: 500;
-    transition: color var(--transition);
-  }
-
-  .nav-links a:hover {
-    color: var(--accent);
-    opacity: 1;
-  }
-
-  .nav-links li {
-    display: flex;
-    align-items: center;
-  }
-
-  /* The second row exists for narrow screens only; above that the bar holds
-     every anchor already. */
-  .nav-scroll {
-    display: none;
-  }
-
-  /* Narrow screens: the section links would wrap out of the 3.5rem bar, so
-     they move to a row of their own below it. GitHub and the theme toggle
-     stay in the bar. */
-  @media (max-width: 700px) {
-    /* Qualified by `li`, which `.nav-links li` above also is: a bare
-       `.nav-section` loses the specificity tie and the bar never collapses. */
-    .nav-links li.nav-section {
-      display: none;
-    }
-
-    .nav-scroll {
-      display: block;
-      border-top: 1px solid var(--border);
-      overflow-x: auto;
-      /* Trims the scrollbar row on platforms that reserve space for one. */
-      scrollbar-width: none;
-    }
-
-    .nav-scroll::-webkit-scrollbar {
-      display: none;
-    }
-
-    .nav-scroll-inner {
-      display: flex;
-      gap: 1.25rem;
-      list-style: none;
-      white-space: nowrap;
-      padding-block: 0.55rem;
-      width: max-content;
-      min-width: 100%;
-    }
-
-    .nav-scroll-inner a {
-      color: var(--text-muted);
-      font-size: 0.85rem;
-      font-weight: 500;
+  @media (min-width: 720px) {
+    .wrap {
+      padding-inline: 32px;
     }
   }
 
-  /* ── hero ── */
-  .hero {
-    padding-top: 3rem;
-    padding-bottom: 2.25rem;
+  .muted {
+    color: var(--muted);
   }
-
-  .hero-inner {
-    display: flex;
-    flex-direction: column;
-    gap: 0.85rem;
-    margin-bottom: 2.5rem;
+  .small {
+    font-size: 13px;
+    line-height: 1.5;
   }
-
-  .hero h1 {
-    font-family: var(--font-mono);
-    font-size: clamp(2.2rem, 5vw, 3.2rem);
-    font-weight: 500;
-    letter-spacing: -0.03em;
-  }
-
-  .hero-title {
-    font-size: 1.1rem;
+  .accent {
     color: var(--accent);
     font-weight: 600;
   }
 
-  .hero-bio {
-    line-height: 1.75;
-  }
-
-  .install {
-    margin-top: 0.75rem;
+  /* labels: real small caps, quiet */
+  .eyebrow {
+    font-variant-caps: all-small-caps;
+    letter-spacing: 0.06em;
+    font-size: 15px;
+    color: var(--muted);
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    gap: 1em;
+    align-items: baseline;
+  }
+  .eyebrow .num {
+    font-family: var(--mono);
+    font-variant-caps: normal;
+    letter-spacing: 0;
+    font-size: 12px;
   }
 
-  /* The command is the real call to action, so it carries the one control in
-     the hero that does something on the page itself. */
-  .install-cmd {
-    position: relative;
-  }
-
-  .install-cmd :global(pre) {
-    padding-right: 5.5rem;
-    margin: 0;
-  }
-
-  .copy {
-    position: absolute;
-    top: 50%;
-    right: 0.6rem;
-    transform: translateY(-50%);
-    padding: 0.3rem 0.7rem;
-    border: 1px solid var(--border);
-    border-radius: 0.375rem;
-    background: var(--surface);
-    color: var(--text);
-    font-family: var(--font-sans);
-    font-size: 0.8rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      background var(--transition),
-      border-color var(--transition),
-      color var(--transition);
-  }
-
-  .copy:hover {
-    background: var(--accent-subtle);
-    border-color: var(--accent-light);
-  }
-
-  .copy:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-
-  .copy[data-copied] {
-    color: var(--ok-fg);
-    background: var(--ok-bg);
-    border-color: var(--ok-fg);
-  }
-
-  .install-note {
-    font-size: 0.875rem;
-    color: var(--text-muted);
-  }
-
-  .badges {
+  /* ── top strip ─────────────────────────────────────────────────────────── */
+  .top {
     display: flex;
-    flex-wrap: wrap;
+    justify-content: space-between;
     align-items: center;
-    gap: 0.5rem;
-    margin-top: 0.35rem;
-    font-size: 0.85rem;
-    color: var(--text-muted);
+    padding-block: 14px;
+    border-bottom: 1px solid var(--hairline);
+    font-size: 14px;
   }
-
-  .badges a {
-    color: var(--text-muted);
-    border-bottom: 1px solid var(--border);
+  .top .name {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 15px;
+    text-decoration: none;
   }
-
-  .badges a:hover {
-    color: var(--accent);
-    opacity: 1;
-  }
-
-  .hero-links {
+  .top nav {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
+    gap: 1.4em;
+    align-items: center;
+    color: var(--muted);
   }
-
-  .btn {
-    display: inline-block;
-    padding: 0.45rem 1rem;
-    border-radius: 0.375rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    background: var(--accent);
-    color: var(--on-accent);
-    transition: background var(--transition);
+  .top nav a {
+    text-decoration: none;
   }
-
-  .btn:hover {
-    background: var(--accent-hover);
-    opacity: 1;
+  .top nav a:hover {
+    color: var(--ink);
   }
-
-  .btn-ghost {
-    background: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--border);
+  .top nav .v {
+    font-family: var(--mono);
+    font-size: 12px;
   }
-
-  .btn-ghost:hover {
-    background: var(--accent-subtle);
-    opacity: 1;
-  }
-
-  /* ── the live demo, in place of what used to be a gif of the same thing ── */
-  .demo {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-
-  .picker {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    list-style: none;
-  }
-
-  .pick {
-    padding: 0.3rem 0.65rem;
-    border: 1px solid var(--border);
-    border-radius: 0.375rem;
-    background: var(--surface);
-    color: var(--text-muted);
-    font: inherit;
-    font-size: 0.82rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      color var(--transition),
-      border-color var(--transition),
-      background var(--transition);
-  }
-
-  .pick:hover {
-    color: var(--text);
-    border-color: var(--accent);
-  }
-
-  .pick[aria-selected="true"] {
-    color: var(--text);
-    border-color: var(--accent);
-    background: var(--accent-subtle);
-  }
-
-  .pick:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-
-  .panes {
-    display: grid;
-    /* A shade wider on the left: the code is what has long lines. */
-    grid-template-columns: 1.1fr 1fr;
-    gap: 0.75rem;
-    align-items: stretch;
-  }
-
-  @media (max-width: 820px) {
-    .panes {
-      grid-template-columns: 1fr;
+  @media (max-width: 719px) {
+    .top nav a {
+      display: none;
     }
   }
 
-  .pane-src {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    overflow: hidden;
-    background: var(--code-bg);
-    box-shadow: var(--shadow-sm);
+  /* ── type scale ────────────────────────────────────────────────────────── */
+  h1 {
+    font-size: clamp(32px, 4.4vw, 50px);
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    max-width: 30ch;
+    text-wrap: balance;
+  }
+  h2 {
+    font-size: 30px;
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    max-width: 26ch;
+    text-wrap: balance;
+  }
+  h3 {
+    font-size: 20px;
+    line-height: 1.3;
+    font-weight: 600;
+  }
+  .lead {
+    font-size: 20px;
+    line-height: 1.45;
+  }
+  @media (max-width: 719px) {
+    h2 {
+      font-size: 26px;
+    }
+    .lead {
+      font-size: 18px;
+    }
   }
 
-  .pane-bar {
+  section {
+    padding-block: 52px;
+    border-top: 1px solid var(--hairline);
+  }
+  @media (min-width: 720px) {
+    section {
+      padding-block: 64px;
+    }
+  }
+  .stack > :global(* + *) {
+    margin-top: 20px;
+  }
+  .stack-lg > :global(* + *) {
+    margin-top: 28px;
+  }
+
+  .hero {
+    padding-block: 40px 64px;
+  }
+  @media (min-width: 720px) {
+    .hero {
+      padding-block: 48px 72px;
+    }
+  }
+
+  /* ── the command ───────────────────────────────────────────────────────── */
+  .cmd {
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    padding-block: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 24px;
+  }
+  .cmd code {
+    font-size: 24px;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+    user-select: all;
+  }
+  .cmd code .npx {
+    color: var(--accent);
+  }
+  .cmd .cmd-links {
+    display: flex;
+    gap: 1.2em;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .cmd .cmd-links a {
+    text-decoration: none;
+  }
+  .cmd .cmd-links a:hover {
+    color: var(--ink);
+  }
+  .cmd.big code {
+    font-size: clamp(24px, 3.2vw, 34px);
+  }
+  @media (min-width: 720px) {
+    .cmd code {
+      font-size: 26px;
+    }
+  }
+  .cmd-note {
+    color: var(--muted);
+    font-size: 15px;
+    margin-top: 10px;
+  }
+  .copy {
+    font: inherit;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: var(--hairline-strong);
+    text-underline-offset: 0.15em;
+  }
+  .copy:hover {
+    text-decoration-color: var(--accent);
+  }
+  .copy:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  /* ── two panes and the wire between them ───────────────────────────────── */
+  /* Side by side from 1080px: each pane then holds 56 columns of 13px Source
+     Code Pro and the longest sample line is 55, so no row wraps and the wire
+     cannot move. Stacked, the underline under each name remains as the trace. */
+  .pair {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    align-items: stretch;
+    position: relative;
+  }
+  @media (min-width: 1080px) {
+    .pair {
+      grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr);
+      gap: 0;
+    }
+  }
+  .pane {
+    border: 1px solid var(--hairline-strong);
+    min-width: 0;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+  .pane-head {
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.4rem 0.7rem;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
+    gap: 12px;
+    padding-inline: var(--code-pad);
+    border-bottom: 1px solid var(--hairline);
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
   }
-
-  .path {
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    color: var(--text-muted);
+  .pane-head code {
+    font-size: 12px;
+    color: var(--ink);
   }
-
+  .pane-head .role {
+    display: flex;
+    gap: 1em;
+    overflow: hidden;
+  }
+  .pane-head .role > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .reset {
-    padding: 0.1rem 0.45rem;
-    border: 1px solid var(--border);
-    border-radius: 0.25rem;
-    background: none;
-    color: var(--text-muted);
-    font-size: 0.7rem;
-    cursor: pointer;
-  }
-
-  .reset:hover {
+    font: inherit;
+    font-family: var(--mono);
+    font-size: 12px;
     color: var(--accent);
-    border-color: var(--accent);
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: var(--hairline-strong);
+    text-underline-offset: 0.15em;
+  }
+  .reset:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .gutter {
+    display: none;
+    position: relative;
   }
 
   /* The textarea stays in flow so its `rows` still set the height; the
@@ -1384,7 +1332,6 @@ const docs = [
     flex: 1;
     min-width: 0;
   }
-
   /*
    * Every declaration here decides where a glyph lands, so the two layers
    * share all of them. Drifting on any one shows up as text sliding out from
@@ -1393,17 +1340,17 @@ const docs = [
   .editor,
   .hl {
     margin: 0;
-    padding: 0.75rem 0.9rem;
+    padding: var(--code-pad);
     border: none;
     border-radius: 0;
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    line-height: 1.6;
+    font-family: var(--mono);
+    font-size: var(--code-size);
+    line-height: var(--lh-code);
     letter-spacing: normal;
     tab-size: 2;
     white-space: pre;
+    color: var(--ink);
   }
-
   .editor {
     flex: 1;
     min-width: 0;
@@ -1411,667 +1358,440 @@ const docs = [
     z-index: 1;
     resize: none;
     background: transparent;
-    color: var(--text);
     /* The script sets `rows` to the line count, so only `wrap="off"` can
        overflow, and only sideways. */
     overflow-x: auto;
     overflow-y: hidden;
   }
-
   /* Once the layer underneath is painted, the real text gets out of its way
      and only the caret is left. Before that the plain text is what is read. */
   .editor-wrap.lit .editor {
     color: transparent;
-    caret-color: var(--text);
+    caret-color: var(--ink);
   }
-
+  .editor:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
   .hl {
     position: absolute;
     inset: 0;
     z-index: 0;
     overflow: hidden;
     background: none;
-    color: var(--text);
     pointer-events: none;
-
-    --tk-comment: #6e7781;
-    --tk-string: #0a3069;
-    --tk-tag: #116329;
-    --tk-attr: #0550ae;
-    --tk-keyword: #cf222e;
-    --tk-fn: #8250df;
-    --tk-number: #0550ae;
   }
-
-  /* github-dark-dimmed, to match the Shiki blocks elsewhere on the page.
-     Declared against the same three selectors as the palette in global.css. */
-  @media (prefers-color-scheme: dark) {
-    :global(:root:not(.theme-light)) .hl {
-      --tk-comment: #768390;
-      --tk-string: #96d0ff;
-      --tk-tag: #8ddb8c;
-      --tk-attr: #6cb6ff;
-      --tk-keyword: #f47067;
-      --tk-fn: #dcbdfb;
-      --tk-number: #6cb6ff;
-    }
+  /* Two-tone highlighting, like the rest of the page: keywords carry weight,
+     comments recede, everything else is ink. The spans are built by the
+     script, so they never carry Astro's scope attribute. */
+  .hl :global(.tk-k) {
+    font-weight: 600;
   }
-
-  :global(:root.theme-dark) .hl {
-    --tk-comment: #768390;
-    --tk-string: #96d0ff;
-    --tk-tag: #8ddb8c;
-    --tk-attr: #6cb6ff;
-    --tk-keyword: #f47067;
-    --tk-fn: #dcbdfb;
-    --tk-number: #6cb6ff;
-  }
-
-  /* The spans are built by the script, so they never carry Astro's scope
-     attribute and have to be reached globally. */
   .hl :global(.tk-c) {
-    color: var(--tk-comment);
+    color: var(--muted);
     font-style: italic;
   }
-  .hl :global(.tk-s) {
-    color: var(--tk-string);
+
+  /* The wire. Both marks sit on row 5 of their file, so the y is derived from
+     the same numbers as the text: padding, four rows, then just under the
+     glyphs. The gutter segment adds the pane's head and borders. Drawn only
+     while `.pair` is `.wired`, which the first edit removes. */
+  .wire {
+    display: none;
   }
-  .hl :global(.tk-t) {
-    color: var(--tk-tag);
-  }
-  .hl :global(.tk-a) {
-    color: var(--tk-attr);
-  }
-  .hl :global(.tk-k) {
-    color: var(--tk-keyword);
-  }
-  .hl :global(.tk-f) {
-    color: var(--tk-fn);
-  }
-  .hl :global(.tk-n) {
-    color: var(--tk-number);
+  @media (min-width: 1080px) {
+    .gutter {
+      display: block;
+    }
+    .pair.wired .wire,
+    .pair.wired .wire::before,
+    .pair.wired .gutter::before {
+      content: "";
+      display: block;
+      position: absolute;
+      border-top: 1.5px solid var(--accent);
+      pointer-events: none;
+      z-index: 2;
+    }
+    .pair.wired .wire {
+      top: calc(var(--code-pad) + 4 * var(--lh-code) + 20.5px);
+    }
+    /* `  const [query, setQuery] =`: the name spans 16ch to 24ch, the wire
+       runs on from there to the pane's edge. */
+    .pair.wired .wire.from {
+      left: calc(var(--code-pad) + 16ch);
+      right: 0;
+    }
+    /* `    onChange(...)`: the wire arrives from the edge and stops under the
+       name, 4ch to 12ch. */
+    .pair.wired .wire.to {
+      left: 0;
+      right: calc(100% - var(--code-pad) - 12ch);
+    }
+    .pair.wired .gutter::before {
+      left: 0;
+      right: 0;
+      top: calc(1px + 32px + 1px + var(--code-pad) + 4 * var(--lh-code) + 20.5px);
+    }
   }
 
-  .editor:focus {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-  }
-
+  /* ── analyzer output ───────────────────────────────────────────────────── */
   .out {
-    flex: 1;
-    margin: 0;
-    padding: 0.75rem 0.9rem;
-    overflow: auto;
-    border: none;
-    border-radius: 0;
-    background: none;
-    color: #c9d1d9;
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    line-height: 1.6;
+    border-top: 1px solid var(--hairline-strong);
+    border-bottom: 1px solid var(--hairline-strong);
+    padding: var(--code-pad) 0;
+    font-size: var(--code-size);
+    line-height: var(--lh-code);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    color: var(--ink);
+    background: var(--bg);
   }
-
-  /* The six SGR codes the human reporter emits, on the terminal's own bg. */
-  .out :global(.b) {
+  .out[aria-busy="true"] {
+    opacity: 0.6;
+  }
+  /* The reporter's six SGR codes, mapped by ansi.ts. Only the severity word
+     carries the accent; the tick and bold stay ink. */
+  .out :global(.b),
+  .out :global(.green) {
     font-weight: 600;
-    color: #e6edf3;
   }
   .out :global(.d) {
-    color: #8b949e;
-  }
-  .out :global(.red) {
-    color: #ff7b72;
-  }
-  .out :global(.green) {
-    color: #3fb950;
+    color: var(--muted);
   }
   .out :global(.yellow) {
-    color: #d29922;
-  }
-
-  /* The same chrome as the live demo, but sized by its content: this one is a
-     build-time run, not a pane that has to match an editor's height. */
-  .static-run .out {
-    flex: none;
-    font-size: 0.78rem;
-  }
-
-  .demo-note {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-  }
-
-  /* ── terminal ── */
-  .terminal {
-    border: 1px solid var(--term-border);
-    border-radius: 0.5rem;
-    overflow: hidden;
-    background: var(--term-bg);
-    box-shadow: var(--shadow-md);
-  }
-
-  .terminal-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem 0.75rem;
-    background: var(--term-bar);
-    border-bottom: 1px solid var(--term-border);
-  }
-
-  .dots {
-    display: flex;
-    gap: 0.35rem;
-  }
-
-  .dots i {
-    width: 0.6rem;
-    height: 0.6rem;
-    border-radius: 50%;
-    background: #444c56;
-  }
-
-  .terminal-title {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    color: #8b949e;
-  }
-
-  .terminal {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-
-  .stats {
-    margin-top: 1rem;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.75rem;
-  }
-
-  .stat {
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    background: var(--surface);
-    padding: 0.7rem 0.9rem;
-  }
-
-  .stat dt {
-    font-family: var(--font-mono);
-    font-size: 0.95rem;
-    font-weight: 500;
-    color: var(--text);
-  }
-
-  .stat dd {
-    margin-top: 0.15rem;
-    font-size: 0.8rem;
-    line-height: 1.45;
-    color: var(--text-muted);
-  }
-
-  .stats-note {
-    font-size: 0.85rem;
-    color: var(--text-muted);
-  }
-
-  @media (max-width: 700px) {
-    .stats {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  /* ── sections ── */
-  .section {
-    padding-block: 1.75rem;
-  }
-
-  .section > .container {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .section-title {
-    font-size: 1.35rem;
-    font-weight: 700;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid var(--accent-light);
-  }
-
-  /* One band, so the page is not a single uninterrupted column. A deeper
-     tone of the same beige, not a switch to white: white reads as a
-     different material rather than a section. */
-  .band {
-    background: var(--band);
-    border-block: 1px solid var(--border);
-    padding-block: 3.25rem;
-  }
-
-  .note {
-    font-size: 0.875rem;
-    color: var(--text-muted);
-  }
-
-  .muted {
-    color: var(--text-muted);
-  }
-
-  /* ── example ── */
-  .code-pair {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .callout {
-    border-left: 3px solid var(--bad-fg);
-    background: var(--bad-bg);
-    border-radius: 0 0.375rem 0.375rem 0;
-    padding: 0.9rem 1.15rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-
-  .callout p {
-    font-size: 0.9rem;
-    line-height: 1.7;
-  }
-
-  /* The same box without the red: this one answers an objection, it does not
-     report a bug. */
-  .callout-neutral {
-    border-left-color: var(--accent);
-    background: var(--accent-subtle);
-  }
-
-  .callout code {
-    background: var(--code-bg);
-    border-color: transparent;
-  }
-
-  /* ── rules ── */
-  .families {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 2rem 2.5rem;
-    margin-top: 0.5rem;
-  }
-
-  .family-label {
-    font-family: var(--font-sans);
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .family-note {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    margin-top: 0.6rem;
-    line-height: 1.6;
-  }
-
-  .rule-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.7rem;
-    margin-top: 0.8rem;
-  }
-
-  .rule dt code {
-    font-size: 0.78rem;
     color: var(--accent);
-    background: var(--accent-subtle);
-    border-color: transparent;
+  }
+  .out :global(.red) {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .out :global(sup) {
+    font-family: var(--sans);
+    font-size: 10px;
+    line-height: 0;
+    vertical-align: super;
+    color: var(--accent);
+    font-weight: 600;
+    margin-left: 2px;
+  }
+  .out-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .out-label .cmdline {
+    color: var(--ink);
     white-space: nowrap;
   }
-
-  .rule dd {
-    font-size: 0.82rem;
-    color: var(--text-muted);
-    line-height: 1.6;
-    margin-top: 0.2rem;
+  figcaption {
+    font-size: 15px;
+    color: var(--muted);
+    line-height: 1.5;
+    margin-top: 12px;
+  }
+  figcaption b {
+    color: var(--ink);
   }
 
-  /* ── comparison ── */
-  /* ── comparison ── */
-  /* The three roles come before the table, and read as three cards rather
-     than three columns: the section's point is that they run together. */
-  /* The four lines of a card (name, moment, what it does, where it stops) sit
-     on shared rows, so the three cards line up line for line however long each
-     one's text runs. `row-gap` is the space inside a card, `column-gap` the
-     space between them. */
-  .roles {
+  /* ── generic two columns ───────────────────────────────────────────────── */
+  .cols {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    column-gap: 0.75rem;
-    row-gap: 0.4rem;
-    margin-top: 0.5rem;
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  @media (min-width: 900px) {
+    .cols {
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+    }
+  }
+  .cols > :global(*) {
+    min-width: 0;
+  }
+  .cols figure {
+    display: flex;
+    flex-direction: column;
+  }
+  .cols figure .out {
+    flex: 1;
+  }
+  .col-head {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--hairline);
+    padding-bottom: 8px;
+    margin-bottom: 14px;
   }
 
-  .role {
+  /* the annotated finding */
+  .anatomy {
     display: grid;
-    grid-template-rows: subgrid;
-    grid-row: span 4;
-    gap: 0.4rem;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    background: var(--surface);
-    padding: 0.9rem 1rem;
+    grid-template-columns: 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (min-width: 900px) {
+    .anatomy {
+      grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+      gap: 40px;
+    }
+  }
+  .anatomy .pane {
+    margin-bottom: 12px;
+  }
+  .anatomy .editor-wrap {
+    flex: none;
   }
 
-  .role-name {
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-    font-weight: 500;
-    line-height: 1.4;
-    overflow-wrap: anywhere;
+  /* the tabs above the example: quiet text, the picked one carries the accent */
+  .picker {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 18px;
+    border-bottom: 1px solid var(--hairline);
   }
-
-  .role-when {
-    font-size: 0.75rem;
+  .pick {
+    font: inherit;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    background: none;
+    border: 0;
+    border-bottom: 1.5px solid transparent;
+    margin-bottom: -1px;
+    padding: 6px 0 8px;
+    cursor: pointer;
+  }
+  .pick:hover {
+    color: var(--ink);
+  }
+  .pick[aria-selected="true"] {
+    color: var(--ink);
+    border-bottom-color: var(--accent);
+  }
+  .pick:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .notes {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: 14px;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .notes li {
+    padding-left: 28px;
+    position: relative;
+  }
+  .notes li::before {
+    content: attr(data-n);
+    position: absolute;
+    left: 0;
+    top: 0.1em;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
     color: var(--accent);
-    font-weight: 600;
   }
 
-  /* The cost sits on the same line as the moment it runs: the two together are
-     why each tool lives where it does. */
-  .role-cost {
-    font-family: var(--font-mono);
-    font-weight: 400;
-    color: var(--text-muted);
-  }
-
-  .role-cost::before {
-    content: "· ";
-  }
-
-  .role-for,
-  .role-limit {
-    font-size: 0.85rem;
-    line-height: 1.6;
-  }
-
-  .role-limit {
-    color: var(--text-muted);
-    padding-top: 0.15rem;
-  }
-
-  .table-title {
-    font-family: var(--font-sans);
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    margin-top: 1.25rem;
-  }
-
-  /* Stacked, the rows have nothing to line up with, and sharing them would
-     squeeze the gap between cards down to the gap inside one. */
-  @media (max-width: 820px) {
-    .roles {
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-
-    .role {
-      display: flex;
-      flex-direction: column;
-    }
-  }
-
-  .table-wrap {
-    overflow-x: auto;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    background: var(--bg);
-    margin-top: 0.5rem;
-  }
-
+  /* ── ruled tables ──────────────────────────────────────────────────────── */
   table {
     border-collapse: collapse;
     width: 100%;
-    font-size: 0.85rem;
+    font-size: 16px;
   }
-
+  th,
+  td {
+    text-align: left;
+    vertical-align: top;
+    padding: 10px 0;
+    border-top: 1px solid var(--hairline);
+  }
   thead th {
-    text-align: left;
-    padding: 0.65rem 0.9rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    font-size: 0.7rem;
-    letter-spacing: 0.05em;
-    white-space: nowrap;
-    border-bottom: 1px solid var(--border);
+    font-variant-caps: all-small-caps;
+    letter-spacing: 0.06em;
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 15px;
+    border-top: none;
+    padding-top: 0;
   }
-
-  tbody th {
-    text-align: left;
-    font-weight: 500;
-    color: var(--text);
-  }
-
-  tbody th,
-  tbody td {
-    padding: 0.5rem 0.9rem;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-  }
-
-  tbody tr:last-child th,
   tbody tr:last-child td {
-    border-bottom: none;
+    border-bottom: 1px solid var(--hairline);
+  }
+  td + td,
+  th + th {
+    padding-left: 24px;
+  }
+  td code.rule {
+    font-size: 13px;
+    white-space: nowrap;
+    background: none;
+    padding: 0;
+  }
+  .num-col {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
-  .chip {
-    display: inline-block;
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: 0.25rem;
+  .rules tbody th {
+    font-weight: 400;
+    color: var(--muted);
+    font-variant-caps: all-small-caps;
+    letter-spacing: 0.06em;
+    font-size: 15px;
+    padding-top: 24px;
+    border-top: none;
   }
-
-  .chip.ok {
-    color: var(--ok-fg);
-    background: var(--ok-bg);
+  .rules tbody tr.group:first-child th {
+    padding-top: 0;
   }
-
-  .chip.warn {
-    color: var(--warn-fg);
-    background: var(--warn-bg);
+  .rules td:first-child {
+    width: 42%;
   }
-
-  .chip.bad {
-    color: var(--bad-fg);
-    background: var(--bad-bg);
+  .rules .what {
+    color: var(--muted);
+    font-size: 15px;
+    display: block;
+    margin-top: 2px;
   }
-
-  .chip.none {
-    color: var(--text-muted);
-    background: var(--code-bg);
-  }
-
-  /* Narrow screens: the matrix becomes one card per bug class, so the
-     reactant column is never the one pushed off the side. */
-  @media (max-width: 700px) {
-    .table-wrap {
-      overflow-x: visible;
-      border: none;
-      background: none;
+  @media (min-width: 720px) {
+    .rules .what {
+      display: inline;
+      margin-left: 0.6em;
     }
-
-    table,
-    tbody,
-    tbody tr,
-    tbody th,
-    tbody td {
+  }
+  @media (max-width: 719px) {
+    .rules tr {
       display: block;
     }
-
-    thead {
+    .rules td,
+    .rules th {
+      display: block;
+      padding-left: 0;
+      width: auto !important;
+    }
+    .rules td:first-child {
+      border-top: 1px solid var(--hairline);
+    }
+    .rules td + td {
+      padding-top: 0;
+      border-top: none;
+    }
+    .rules tbody tr:last-child td:first-child {
+      border-bottom: none;
+    }
+    .fit thead {
       display: none;
     }
-
-    tbody tr {
-      border: 1px solid var(--border);
-      border-radius: 0.5rem;
-      background: var(--bg);
-      padding: 0.75rem 0.9rem;
-      margin-bottom: 0.6rem;
+    .fit tr {
+      display: block;
+      border-top: 1px solid var(--hairline);
+      padding-block: 12px;
     }
-
-    tbody tr:last-child {
-      margin-bottom: 0;
+    .fit tbody tr:last-child {
+      border-bottom: 1px solid var(--hairline);
     }
-
-    tbody th {
-      padding: 0 0 0.6rem;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 0.5rem;
-      white-space: normal;
-      font-weight: 600;
-    }
-
-    tbody td {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      padding: 0.2rem 0;
+    .fit td {
+      display: block;
+      padding: 2px 0;
       border: none;
+      white-space: normal;
     }
-
-    tbody td::before {
-      content: attr(data-tool);
-      font-size: 0.72rem;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+    .fit tbody tr:last-child td {
+      border-bottom: none;
+    }
+    .fit td:first-child {
+      font-variant-caps: all-small-caps;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-size: 15px;
+    }
+    .fit td.num-col {
+      color: var(--muted);
+    }
+    pre.block {
+      font-size: 12px;
     }
   }
 
-  .notes {
+  /* ── misc blocks ───────────────────────────────────────────────────────── */
+  pre.block {
+    border-top: 1px solid var(--hairline-strong);
+    border-bottom: 1px solid var(--hairline-strong);
+    padding: var(--code-pad) 0;
+    font-size: var(--code-size);
+    line-height: var(--lh-code);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  pre.block.wrap-ok {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .list {
+    padding-left: 1.1em;
+  }
+  .list li + li {
+    margin-top: 8px;
+  }
+  .how .term {
+    color: var(--muted);
+  }
+
+  /* ── footer ────────────────────────────────────────────────────────────── */
+  footer {
+    border-top: 1px solid var(--hairline);
+    padding-block: 40px 56px;
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .colophon {
+    display: grid;
+    gap: 10px;
+  }
+  .doc-head {
+    font-variant-caps: all-small-caps;
+    letter-spacing: 0.06em;
+    font-size: 15px;
+    margin-top: 8px;
+  }
+  .docs {
     list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.8rem;
-    margin-top: 0.5rem;
-    font-size: 0.9rem;
-    line-height: 1.7;
-  }
-
-  .notes li {
-    padding-left: 1rem;
-    position: relative;
-  }
-
-  .notes li::before {
-    content: "–";
-    position: absolute;
-    left: 0;
-    color: var(--accent-light);
-  }
-
-  /* ── docs ── */
-  .doc-list {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    font-size: 0.9rem;
-  }
-
-  .doc-list li {
-    padding-left: 1rem;
-    position: relative;
-  }
-
-  .doc-list li::before {
-    content: "–";
-    position: absolute;
-    left: 0;
-    color: var(--accent-light);
-  }
-
-  .tags {
+    padding: 0;
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
-    margin-top: 0.5rem;
+    gap: 6px 1.6em;
+    font-size: 14px;
   }
-
-  .tag {
-    font-size: 0.8rem;
-    padding: 0.25rem 0.6rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 0.25rem;
+  .docs code {
+    background: none;
+    padding: 0;
+    font-size: 13px;
   }
-
-  /* ── footer ── */
-  .footer {
-    margin-top: auto;
-    background: var(--surface);
-    border-top: 1px solid var(--border);
+  .docs span {
+    color: var(--muted);
   }
-
-  .footer-inner {
-    padding-block: 2rem;
+  .cite {
+    font-style: italic;
+  }
+  .links {
     display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
+    flex-wrap: wrap;
+    gap: 1.2em;
+    margin-top: 8px;
   }
-
-  .footer p {
-    font-size: 0.875rem;
-    color: var(--text-muted);
-  }
-</style>
-
-<style is:global>
-  /* Shiki output, folded into the site's code-block style. */
-  .astro-code {
-    background-color: var(--code-bg) !important;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    padding: 1rem 1.15rem;
-    overflow-x: auto;
-    font-family: var(--font-mono);
-    font-size: 0.82rem;
-    line-height: 1.65;
-  }
-
-  /*
-   * Dual-theme Shiki with defaultColor false emits both palettes as custom
-   * properties per token. Same three selectors as the palette in global.css,
-   * so the highlighting switches with everything else.
-   */
-  .astro-code,
-  .astro-code span {
-    color: var(--shiki-light);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root:not(.theme-light) .astro-code,
-    :root:not(.theme-light) .astro-code span {
-      color: var(--shiki-dark);
-    }
-  }
-
-  :root.theme-dark .astro-code,
-  :root.theme-dark .astro-code span {
-    color: var(--shiki-dark);
+  footer a {
+    color: var(--ink);
+    text-decoration-color: var(--hairline-strong);
   }
 </style>

@@ -11,7 +11,7 @@ npm run preview
 ```
 
 - Content and styles: [src/pages/index.astro](src/pages/index.astro)
-- Design tokens (shared with rboud.com): [src/styles/global.css](src/styles/global.css)
+- Palette, type and the code-pane metrics: [src/styles/global.css](src/styles/global.css)
 - Deployed at `https://reactant.rboud.com`, set as `site` in [astro.config.mjs](astro.config.mjs);
   the social card tags are built from it.
 - Deployed to GitHub Pages by [.github/workflows/deploy.yml](.github/workflows/deploy.yml)

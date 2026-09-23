@@ -353,7 +353,7 @@ const docs = [
           {sections.map(([href, label]) => (
             <li class="nav-section"><a href={href}>{label}</a></li>
           ))}
-          <li><a href={repo} target="_blank" rel="noopener">GitHub</a></li>
+          <li><a class="nav-cta" href={repo} target="_blank" rel="noopener">GitHub</a></li>
           <li><ThemeToggle /></li>
         </ul>
       </div>
@@ -372,13 +372,18 @@ const docs = [
 
     <header id="top" class="hero">
       <div class="container hero-inner">
-        <h1>reactant</h1>
-        <p class="hero-title">A static analyzer for React hook bugs</p>
+        <div class="hero-mark">
+          <h1>reactant</h1>
+          <a class="version" href={`${npm}/v/${version}`} target="_blank" rel="noopener">v{version}</a>
+          <span class="hero-kicker">Static analysis for React hooks</span>
+        </div>
+        <p class="hero-title">
+          Finds the hook bugs <em>ESLint has no rule for.</em>
+        </p>
         <p class="hero-bio">
-          Finds the bugs ESLint has no rule for: <strong>infinite render loops</strong>, effects that
-          mirror state instead of computing it, callbacks stuck reading a value <strong
-            >frozen at mount</strong
-          >, providers that re-render every consumer on every render.
+          <strong>Infinite render loops</strong>, effects that mirror state instead of computing it,
+          callbacks stuck reading a value <strong>frozen at mount</strong>, providers that re-render
+          every consumer on every render. Tracked across files, in one command.
         </p>
         <div class="install">
           <div class="install-cmd">
@@ -396,14 +401,12 @@ const docs = [
           </p>
         </div>
         <div class="hero-links">
-          <a class="btn" href={repo} target="_blank" rel="noopener">GitHub</a>
+          <a class="btn" href="#example">See it work</a>
+          <a class="btn btn-ghost" href={repo} target="_blank" rel="noopener">GitHub</a>
           <a class="btn btn-ghost" href={npm} target="_blank" rel="noopener">npm</a>
-          <a class="btn btn-ghost" href="#docs">Documentation</a>
         </div>
 
         <p class="badges">
-          <a href={`${npm}/v/${version}`} target="_blank" rel="noopener">v{version}</a>
-          <span aria-hidden="true">·</span>
           <a href={`${repo}/blob/main/LICENSE`} target="_blank" rel="noopener">MIT</a>
           <span aria-hidden="true">·</span>
           <span>Node 20+</span>
@@ -414,7 +417,7 @@ const docs = [
         </p>
       </div>
 
-      <div class="container demo">
+      <div class="container container-wide demo">
         <ul class="picker" role="tablist" aria-label="Examples">
           {
             demos.map((demo, i) => (
@@ -490,7 +493,7 @@ const docs = [
     <main>
       <section id="example" class="section">
         <div class="container">
-          <h2 class="section-title">Two correct files, one infinite loop</h2>
+          <h2 class="section-title" data-kicker="Example">Two correct files, one infinite loop</h2>
           <p>
             <code>Dashboard</code> owns the state. <code>Filters</code> trims it and hands it back.
             Neither file is wrong on its own.
@@ -548,7 +551,7 @@ const docs = [
 
       <section id="rules" class="section">
         <div class="container">
-          <h2 class="section-title">What it catches</h2>
+          <h2 class="section-title" data-kicker="Rules">What it catches</h2>
           <p>
             Seventeen diagnostics. Most have no ESLint counterpart. <code>reactant rules</code> lists them
             all, <code>reactant explain &lt;rule&gt;</code> gives an example and a fix for one.
@@ -576,7 +579,7 @@ const docs = [
 
       <section id="comparison" class="section band">
         <div class="container">
-          <h2 class="section-title">Where reactant fits</h2>
+          <h2 class="section-title" data-kicker="Comparison">Where reactant fits</h2>
           <p>
             reactant does not replace ESLint or React Compiler. Each one runs at a different moment.
             ESLint checks the file you are typing in, the compiler rewrites your code at build time,
@@ -629,7 +632,7 @@ const docs = [
 
       <section id="ci" class="section">
         <div class="container">
-          <h2 class="section-title">In CI</h2>
+          <h2 class="section-title" data-kicker="CI">In CI</h2>
           <p>
             The repository is also a GitHub Action. Every finding becomes an annotation on the file and
             line that produced it.
@@ -648,7 +651,7 @@ const docs = [
 
       <section id="ai" class="section">
         <div class="container">
-          <h2 class="section-title">For AI-generated code</h2>
+          <h2 class="section-title" data-kicker="Agents">For AI-generated code</h2>
           <p>
             LLMs write exactly these bugs, and they write them behind enough abstraction that AST
             patterns never fire. <code>--format json</code> gives a machine-readable report where every
@@ -667,7 +670,7 @@ const docs = [
 
       <section id="packs" class="section">
         <div class="container">
-          <h2 class="section-title">Team rules</h2>
+          <h2 class="section-title" data-kicker="Rule packs">Team rules</h2>
           <p>
             Team conventions ship as rule packs, written against facts the engine already resolved
             (which hook a value came from, what a setter writes, what a selector returns) rather than
@@ -680,26 +683,25 @@ const docs = [
 
       <section id="docs" class="section">
         <div class="container">
-          <h2 class="section-title">Documentation</h2>
+          <h2 class="section-title" data-kicker="Docs">Documentation</h2>
           <ul class="doc-list">
             {
               docs.map(([name, href, desc]) => (
                 <li>
-                  {/* All on one line: any newline here collapses to a space and
-                      the colon drifts off the name it belongs to. */}
-                  {/* prettier-ignore */}
-                  <a href={href} target="_blank" rel="noopener">{name}</a><span class="muted">: {desc}</span>
+                  <a href={href} target="_blank" rel="noopener">{name}</a>
+                  <span class="muted">{desc}</span>
                 </li>
               ))
             }
           </ul>
-          <div class="tags">
+          <p class="tags">
+            <span class="tags-label">Under the hood</span>
             <span class="tag">Rust</span>
             <span class="tag">Abstract interpretation</span>
             <span class="tag">WebAssembly</span>
             <span class="tag">React</span>
             <span class="tag">MIT licensed</span>
-          </div>
+          </p>
         </div>
       </section>
     </main>
@@ -1037,6 +1039,12 @@ const docs = [
     padding-inline: 1.5rem;
   }
 
+  /* The demo and its stats run wider than the prose: a product on show, not a
+     paragraph. */
+  .container-wide {
+    max-width: var(--container-wide);
+  }
+
   /* ── nav ── */
   .topnav {
     position: sticky;
@@ -1086,6 +1094,23 @@ const docs = [
     align-items: center;
   }
 
+  .nav-links a.nav-cta {
+    padding: 0.3rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    color: var(--text);
+    font-size: 0.85rem;
+    transition:
+      border-color var(--transition),
+      background var(--transition);
+  }
+
+  .nav-links a.nav-cta:hover {
+    color: var(--text);
+    border-color: var(--accent);
+    background: var(--accent-subtle);
+  }
+
   /* The second row exists for narrow screens only; above that the bar holds
      every anchor already. */
   .nav-scroll {
@@ -1132,33 +1157,127 @@ const docs = [
   }
 
   /* ── hero ── */
+  /* A faint grid under a glow, fading out before the demo: the one place the
+     page gets a backdrop, so the top reads as a product's front door and the
+     rest stays plain. */
   .hero {
-    padding-top: 3rem;
-    padding-bottom: 2.25rem;
+    position: relative;
+    padding-top: 4.5rem;
+    padding-bottom: 3rem;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-image:
+      radial-gradient(ellipse 70% 60% at 25% 0%, var(--hero-glow), transparent 70%),
+      linear-gradient(var(--hero-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--hero-grid) 1px, transparent 1px);
+    background-size:
+      100% 100%,
+      2rem 2rem,
+      2rem 2rem;
+    mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.6) 45%, transparent 85%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.6) 45%, transparent 85%);
   }
 
   .hero-inner {
     display: flex;
     flex-direction: column;
-    gap: 0.85rem;
-    margin-bottom: 2.5rem;
+    gap: 1.1rem;
+    margin-bottom: 3rem;
+  }
+
+  /* The wordmark is a label now, not the headline: the pitch is. */
+  .hero-mark {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem 0.75rem;
   }
 
   .hero h1 {
     font-family: var(--font-mono);
-    font-size: clamp(2.2rem, 5vw, 3.2rem);
+    font-size: 1.35rem;
     font-weight: 500;
-    letter-spacing: -0.03em;
+    letter-spacing: -0.02em;
+  }
+
+  .version {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    padding: 0.12rem 0.5rem;
+    border-radius: 999px;
+    color: var(--accent);
+    background: var(--accent-subtle);
+    border: 1px solid transparent;
+    transition: border-color var(--transition);
+  }
+
+  .version:hover {
+    opacity: 1;
+    border-color: var(--accent-light);
+  }
+
+  .hero-kicker {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+
+  .hero-kicker::before {
+    content: "·";
+    margin-right: 0.75rem;
+    color: var(--border);
   }
 
   .hero-title {
-    font-size: 1.1rem;
+    font-family: var(--font-serif);
+    font-size: clamp(2rem, 4.6vw, 3.1rem);
+    font-weight: 700;
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    max-width: 22ch;
+  }
+
+  .hero-title em {
+    font-style: italic;
+    font-weight: 400;
     color: var(--accent);
-    font-weight: 600;
   }
 
   .hero-bio {
-    line-height: 1.75;
+    font-size: 1.1rem;
+    line-height: 1.7;
+    max-width: 62ch;
+    color: var(--text-muted);
+  }
+
+  .hero-bio strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  @media (max-width: 700px) {
+    .hero {
+      padding-top: 2.5rem;
+    }
+
+    .hero-bio {
+      font-size: 1rem;
+    }
+
+    .hero-kicker {
+      flex-basis: 100%;
+    }
+
+    .hero-kicker::before {
+      content: none;
+    }
   }
 
   .install {
@@ -1175,8 +1294,11 @@ const docs = [
   }
 
   .install-cmd :global(pre) {
-    padding-right: 5.5rem;
+    padding: 1rem 5.5rem 1rem 1.25rem;
     margin: 0;
+    font-size: 0.95rem;
+    background-color: var(--surface) !important;
+    box-shadow: var(--shadow-sm);
   }
 
   .copy {
@@ -1249,9 +1371,9 @@ const docs = [
 
   .btn {
     display: inline-block;
-    padding: 0.45rem 1rem;
-    border-radius: 0.375rem;
-    font-size: 0.875rem;
+    padding: 0.55rem 1.15rem;
+    border-radius: 0.5rem;
+    font-size: 0.9rem;
     font-weight: 500;
     background: var(--accent);
     color: var(--on-accent);
@@ -1596,13 +1718,14 @@ const docs = [
     border: 1px solid var(--border);
     border-radius: 0.5rem;
     background: var(--surface);
-    padding: 0.7rem 0.9rem;
+    padding: 0.9rem 1.1rem;
   }
 
   .stat dt {
-    font-family: var(--font-mono);
-    font-size: 0.95rem;
-    font-weight: 500;
+    font-family: var(--font-serif);
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
     color: var(--text);
   }
 
@@ -1626,20 +1749,48 @@ const docs = [
 
   /* ── sections ── */
   .section {
-    padding-block: 1.75rem;
+    padding-block: 3.5rem;
+  }
+
+  .section + .section:not(.band) {
+    border-top: 1px solid var(--border);
+  }
+
+  .band + .section {
+    border-top: none;
   }
 
   .section > .container {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 1.1rem;
   }
 
+  /* A small mono kicker over a large serif title: the underline it replaces
+     read as a résumé heading. */
   .section-title {
-    font-size: 1.35rem;
+    font-size: clamp(1.6rem, 3vw, 2rem);
     font-weight: 700;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid var(--accent-light);
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+  }
+
+  .section-title::before {
+    content: attr(data-kicker);
+    display: block;
+    margin-bottom: 0.7rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  /* The lead paragraph right after a title is the section's one claim. */
+  .section-title + p {
+    font-size: 1.05rem;
+    max-width: 68ch;
   }
 
   /* One band, so the page is not a single uninterrupted column. A deeper
@@ -1648,7 +1799,7 @@ const docs = [
   .band {
     background: var(--band);
     border-block: 1px solid var(--border);
-    padding-block: 3.25rem;
+    padding-block: 4rem;
   }
 
   .note {
@@ -1697,9 +1848,17 @@ const docs = [
   /* ── rules ── */
   .families {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 2rem 2.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 0.9rem;
     margin-top: 0.5rem;
+  }
+
+  .family {
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+    background: var(--surface);
+    padding: 1.1rem 1.2rem 1.25rem;
+    box-shadow: var(--shadow-sm);
   }
 
   .family-label {
@@ -1709,7 +1868,7 @@ const docs = [
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    padding-bottom: 0.5rem;
+    padding-bottom: 0.6rem;
     border-bottom: 1px solid var(--border);
   }
 
@@ -1987,37 +2146,60 @@ const docs = [
   /* ── docs ── */
   .doc-list {
     list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.75rem;
     font-size: 0.9rem;
   }
 
   .doc-list li {
-    padding-left: 1rem;
-    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+    background: var(--surface);
+    transition: border-color var(--transition);
   }
 
-  .doc-list li::before {
-    content: "–";
-    position: absolute;
-    left: 0;
-    color: var(--accent-light);
+  .doc-list li:hover {
+    border-color: var(--accent-light);
   }
 
+  .doc-list a {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-weight: 500;
+  }
+
+  .doc-list .muted {
+    font-size: 0.85rem;
+    line-height: 1.55;
+  }
+
+  /* One quiet line, where a row of tags read as a skills list. */
   .tags {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
-    margin-top: 0.5rem;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+    margin-top: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
   }
 
-  .tag {
-    font-size: 0.8rem;
-    padding: 0.25rem 0.6rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 0.25rem;
+  .tags-label {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-right: 0.5rem;
+  }
+
+  .tag + .tag::before {
+    content: "·";
+    margin-right: 0.5rem;
+    color: var(--border);
   }
 
   /* ── footer ── */

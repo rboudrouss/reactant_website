@@ -27,7 +27,10 @@
   --font-sans: "Inter", "Public Sans", system-ui, sans-serif;
   --font-serif: "Lora", Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --container: 900px;
+  --container: 960px;
+  --container-wide: 1120px;
+  --hero-grid: rgba(26, 26, 46, 0.055);
+  --hero-glow: rgba(26, 111, 191, 0.14);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
   --transition: 0.2s ease;
@@ -58,6 +61,8 @@
   --on-accent: #0f1117;
   --band: #151823;
   --code-bg: #0a0c11;
+  --hero-grid: rgba(232, 233, 237, 0.06);
+  --hero-glow: rgba(77, 166, 245, 0.16);
 
   /* The terminal chrome stays dark in both themes: the gif inside it is. */
 
@@ -90,6 +95,8 @@
   --on-accent: #0f1117;
   --band: #151823;
   --code-bg: #0a0c11;
+  --hero-grid: rgba(232, 233, 237, 0.06);
+  --hero-glow: rgba(77, 166, 245, 0.16);
 
   /* The terminal chrome stays dark in both themes: the gif inside it is. */
 

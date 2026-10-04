@@ -230,7 +230,7 @@ jobs:
 const plugin = `/plugin marketplace add rboudrouss/reactant-analyzer
 /plugin install reactant@reactant-analyzer`;
 
-/** The 17 diagnostics, grouped by the failure they describe, symptom first. */
+/** The 19 diagnostics, grouped by the failure they describe, symptom first. */
 const families: { label: string; rules: [string, string, string][] }[] = [
   {
     label: "Loops that never settle",
@@ -239,6 +239,14 @@ const families: { label: string; rules: [string, string, string][] }[] = [
       ["The same loop, but the setter belongs to the parent. Both files look fine alone.", "cross-component-infinite-loop", "a child effect sets parent state, the parent re-renders the child, the effect fires again"],
       ["A setter called while rendering. React warns, or loops.", "setter-in-render", "setState runs during the render body"],
       ["The same, but the setter arrived as a prop.", "cross-setter-in-render", "the same, reached through a prop"],
+    ],
+  },
+  {
+    label: "Re-renders nobody asked for",
+    rules: [
+      ["Typing in a field three components up re-renders the whole page on every keystroke.", "state-lifted-too-high", "a state is used only deep in one child subtree, so every component above it re-renders to pass it down"],
+      ["The heavy sibling next to the search box renders identical output many times a second.", "wasted-subtree-render", "typing, scrolling or pointer motion writes a state and re-renders subtrees that do not depend on it"],
+      ["Every consumer re-renders every time the provider does, even when nothing in the value changed.", "unstable-context-value", "a provider hands consumers a new object every render"],
     ],
   },
   {
@@ -260,7 +268,6 @@ const families: { label: string; rules: [string, string, string][] }[] = [
     label: "Identity and mutation",
     rules: [
       ["You pushed to the array and nothing re-rendered.", "state-mutation", "a state or prop object is mutated in place, so the reference never changes and React skips the re-render"],
-      ["Every consumer re-renders every time the provider does, even when nothing in the value changed.", "unstable-context-value", "a provider hands consumers a new object every render"],
       ["The expensive setup runs on every render instead of once.", "lazy-init", "a useState initializer calls a function on every render"],
     ],
   },
@@ -286,6 +293,7 @@ const docs = [
   ["limitations", doc("limitations.md"), "what it misses, what it may get wrong"],
   ["precision-log", doc("precision-log.md"), "every wrong warning, on 14 repositories"],
   ["custom-rules", doc("custom-rules.md"), "rule packs"],
+  ["relations", doc("relations.md"), "the facts the engine exposes to rules, with their polarity"],
   ["plugins", doc("plugins.md"), "the Rust API"],
   ["adr", `${repo}/tree/main/docs/adr`, "every design decision"],
 ];
@@ -530,7 +538,7 @@ const docs = [
     <section id="rules">
       <div class="wrap stack-lg">
         <div class="stack">
-          <h2>Seventeen rules, sorted by what you see in the browser.</h2>
+          <h2>Nineteen rules, sorted by what you see in the browser.</h2>
           <p>
             The left column is what you saw in the browser. The right is the rule that names it.
             <code>reactant rules</code> lists them, plus two informational entries the run uses to say
@@ -558,6 +566,14 @@ const docs = [
             }
           </tbody>
         </table>
+
+        <p>
+          The two render-cascade rules take options, in <code>reactant.config.json</code> or with
+          <code>--rule-option</code>: how deep a state must sit below its owner before
+          <code>state-lifted-too-high</code> speaks, how many renders a write must waste before either
+          rule does, and whether <code>wasted-subtree-render</code> also counts clicks.
+          <code>reactant explain &lt;rule&gt;</code> lists them with their defaults.
+        </p>
       </div>
     </section>
 
